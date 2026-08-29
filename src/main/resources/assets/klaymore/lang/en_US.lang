@@ -1,0 +1,22 @@
+item.klaymore_wand.name=Klaymore Wand
+
+itemGroup.tabKlaymore=Klaymore
+
+tooltip.klaymore_wand.line1=Right-click an NPC to bind a script
+tooltip.klaymore_wand.line2=Klaymore scripting tool
+
+gui.klaymore.title=Bind Script to NPC
+gui.klaymore.target=Target: %s
+gui.klaymore.script=Script name (.kts):
+gui.klaymore.bind=Bind
+gui.klaymore.unbind=Unbind All
+gui.cancel=Cancel
+gui.klaymore.err.empty=Please enter a script name!
+
+gui.klaymore.bind.tooltip=Mount the script file onto this NPC
+gui.klaymore.bind.tooltip2=If script already bound, it will be remounted
+gui.klaymore.unbind.tooltip=Remove ALL Klaymore scripts bound to this NPC
+gui.klaymore.dir=Directory: %s
+gui.klaymore.refresh=Refresh
+gui.klaymore.refreshed=Script list refreshed
+gui.klaymore.refresh.tooltip=Rescan klaymore folder for .kts files

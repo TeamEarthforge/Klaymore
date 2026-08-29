@@ -31,6 +31,9 @@ public class Klaymore {
     public static final String MODID = "klaymore";
     public static final Logger LOG = LogManager.getLogger(MODID);
 
+    @Mod.Instance(MODID)
+    public static Klaymore instance;
+
     @SidedProxy(clientSide = "com.earthforge.klaymore.ClientProxy", serverSide = "com.earthforge.klaymore.CommonProxy")
     public static CommonProxy proxy;
 
@@ -59,6 +62,7 @@ public class Klaymore {
      */
     public static boolean postScriptEvent(Object event) {
         if (event == null) return false;
+        KotlinPreloader.preload();
         try {
             return SubscriberRegistry.dispatch(event);
         } catch (Throwable t) {
@@ -164,7 +168,19 @@ public class Klaymore {
         proxy.preInit(event);
 
         // =================================================================
-        // ⭐ 阶段 1：注册 PersistenceStorage 事件总线
+        // ⭐ 阶段 1b：注册 Klaymore Wand 专属 Forge 事件（EntityInteract 右键 NPC）
+        // =================================================================
+        try {
+            Class.forName("com.earthforge.klaymore.wand.WandForgeEventHandler")
+                .getMethod("register").invoke(null);
+            LOG.info("[Klaymore] Wand Forge event handler registered");
+        } catch (Throwable t) {
+            LOG.warn("[Klaymore] Wand Forge event handler register failed (non-fatal): "
+                + t.getMessage());
+        }
+
+        // =================================================================
+        // ⭐ 阶段 2：注册 PersistenceStorage 事件总线
         // =================================================================
         try {
             PersistenceStorage.initialize();
@@ -174,7 +190,7 @@ public class Klaymore {
         }
 
         // =================================================================
-        // ⭐ 阶段 2：注册事件目标提取器（写入纯 Java 的 EventTargetRegistrar）
+        // ⭐ 阶段 3：注册事件目标提取器（写入纯 Java 的 EventTargetRegistrar）
         // =================================================================
         try {
             BuiltinTargetExtractors.registerAll();
@@ -183,7 +199,7 @@ public class Klaymore {
         }
 
         // =================================================================
-        // ⭐ 阶段 3：注册 Forge 事件桥接（高性能精确监听 · 纯 Java 查询 Registrar）
+        // ⭐ 阶段 4：注册 Forge 事件桥接（高性能精确监听 · 纯 Java 查询 Registrar）
         // =================================================================
         try {
             EventBus forgeBus = MinecraftForge.EVENT_BUS;
@@ -205,7 +221,7 @@ public class Klaymore {
         }
 
         // =================================================================
-        // ⭐ 阶段 4（最后一行）：Kotlin 侧预热（双重保险 · 第二重）
+        // ⭐ 阶段 5（最后一行）：Kotlin 侧预热（双重保险 · 第二重）
         // =================================================================
         // 走到这里，preInit 所有 Java 工作都已做完，LaunchClassLoader 初始化也更成熟，
         // 此时再进入第一个 Kotlin 方法（SubscriberRegistry.preloadKotlinStdlib）就更稳了。
