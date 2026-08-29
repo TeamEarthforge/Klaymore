@@ -1,0 +1,88 @@
+plugins {
+    id 'org.jetbrains.kotlin.jvm'
+    id 'com.gradleup.shadow'
+}
+
+repositories {
+    mavenCentral()
+}
+
+java {
+    sourceCompatibility = JavaVersion.VERSION_1_8
+    targetCompatibility = JavaVersion.VERSION_1_8
+}
+
+def kotlin_version = "2.1.10"
+
+dependencies {
+    implementation "org.jetbrains.kotlin:kotlin-stdlib:$kotlin_version"
+    implementation "org.jetbrains.kotlin:kotlin-script-runtime:$kotlin_version"
+    implementation "org.jetbrains.kotlin:kotlin-scripting-common:$kotlin_version"
+    implementation "org.jetbrains.kotlin:kotlin-scripting-jvm:$kotlin_version"
+    implementation "org.jetbrains.kotlin:kotlin-scripting-jvm-host:$kotlin_version"
+    implementation "org.jetbrains.kotlin:kotlin-scripting-compiler-embeddable:$kotlin_version"
+    implementation "org.jetbrains.kotlin:kotlin-compiler-embeddable:$kotlin_version"
+    implementation "org.jetbrains.kotlinx:kotlinx-coroutines-core:1.8.1"
+}
+
+def shadowJarTask = tasks.named('shadowJar')
+
+shadowJarTask.configure {
+    // ⭐ 直接产出最终文件名：klaymore-runtime.jar（主 mod 的前置运行库）
+    // 用户把它和主 mod JAR 一起丢进 mods/ 文件夹即可
+    archiveBaseName.set('klaymore-runtime')
+    archiveClassifier.set('')
+    archiveVersion.set('')
+
+    zip64 = true
+    mergeServiceFiles()
+
+    relocate 'kotlin', 'com.earthforge.klaymore.shadow.kotlin'
+    relocate 'kotlinx', 'com.earthforge.klaymore.shadow.kotlinx'
+    relocate 'org.jetbrains.kotlin', 'com.earthforge.klaymore.shadow.org.jetbrains.kotlin'
+    relocate 'org.jetbrains.annotations', 'com.earthforge.klaymore.shadow.org.jetbrains.annotations'
+    relocate 'org.intellij.lang.annotations', 'com.earthforge.klaymore.shadow.org.intellij.lang.annotations'
+    relocate 'org.codehaus', 'com.earthforge.klaymore.shadow.org.codehaus'
+    relocate 'org.jdom', 'com.earthforge.klaymore.shadow.org.jdom'
+
+    // 不要 minimize！因为这个模块没有源代码，只是打包运行时依赖，minimize 会把所有类认为"未使用"然后全部删掉！
+
+    // ⭐ 构建完成后自动删除 tmp/.cache/expanded 解压缓存（3~5 万个散文件，对 script-runtime 毫无用处）
+    // 下次如果真的要重新 shadowJar，Gradle 会自己重新解压依赖 JAR
+    doLast {
+        def cacheDir = file("${buildDir}/tmp/.cache/expanded")
+        if (cacheDir.exists()) {
+            def fileCount = 0
+            cacheDir.eachFileRecurse(groovy.io.FileType.FILES) { fileCount++ }
+            project.delete(cacheDir)
+            println "[script-runtime] 已清理解压缓存: ${cacheDir.path} (${fileCount} 个文件)"
+        }
+        // 顺带清理 tmp/shadowJar 和 tmp/jar 的中间产物（如果有）
+        def tmpJar = file("${buildDir}/tmp/jar")
+        if (tmpJar.exists()) project.delete(tmpJar)
+        def tmpShadow = file("${buildDir}/tmp/shadowJar")
+        if (tmpShadow.exists()) project.delete(tmpShadow)
+    }
+}
+
+// ⭐ 构建完成后，自动把 klaymore-runtime.jar 复制到项目根目录的 libs/ 文件夹
+// 这样主模块可以直接用 flatDir/files 引用它，完全脱离 Gradle project 依赖
+task copyRuntime(type: Copy, dependsOn: shadowJarTask) {
+    from(shadowJarTask.flatMap { it.archiveFile })
+    into(rootProject.file('libs'))
+    doFirst {
+        into(rootProject.file('libs'))
+    }
+    doLast {
+        def targetFile = rootProject.file('libs/klaymore-runtime.jar')
+        println "[script-runtime] 运行库已复制到: ${targetFile.absolutePath}"
+        println "[script-runtime] 大小: ${String.format('%.2f', targetFile.length()/1024/1024)} MB"
+    }
+}
+
+// 让 build 任务自动执行 copyRuntime
+build.dependsOn copyRuntime
+
+artifacts {
+    shadow shadowJarTask
+}

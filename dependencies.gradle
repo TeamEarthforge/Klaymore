@@ -6,8 +6,8 @@
  *       Available at runtime but not compiletime for mods depending on this mod
  *  - compileOnly("g:n:v:c"): if the mod you're building doesn't need this dependency during runtime at all, e.g. for optional mods
  *       Not available at all for mods depending on this mod, only visible at compiletime for this mod
- *  - compileOnlyApi("g:n:v:c"): like compileOnly, but also visible at compiletime for mods depending on this mod
- *       Available at compiletime but not runtime for mods depending on this mod
+ *  - compileOnlyApi("g:n:v:c"): like compileOnly, but also visible at compiletime for mods depending on your mod
+ *       Available at compiletime but not runtime for mods
  *  - runtimeOnlyNonPublishable("g:n:v:c"): if you want to include a mod in this mod's runClient/runServer runs, but not publish it as a dependency
  *       Not available at all for mods depending on this mod, only visible at runtime for this mod
  *  - devOnlyNonPublishable("g:n:v:c"): a combination of runtimeOnlyNonPublishable and compileOnly for dependencies present at both compiletime and runtime,
@@ -22,7 +22,7 @@
  *
  *  - compile("g:n:v:c"): deprecated, replace with "api" (works like the old "compile") or "implementation" (can be more efficient)
  *
- * You can exclude transitive dependencies (dependencies of the chosen dependency) by appending { transitive = false } if needed,
+ * You can exclude transitive dependencies by appending { transitive = false } if needed,
  * but use this sparingly as it can break using your mod as another mod's dependency if you're not careful.
  *
  * To depend on obfuscated jars you can use `devOnlyNonPublishable(rfg.deobf("dep:spec:1.2.3"))` to fetch an obfuscated jar from maven,
@@ -34,13 +34,37 @@
  * For more details, see https://docs.gradle.org/8.0.1/userguide/java_library_plugin.html#sec:java_library_configurations_graph
  */
 ext.kotlin_version = '2.1.10'
+
+// ⚠️ 重要：Kotlin 运行库**完全不在主模块产物里打包**！
+//   独立 JAR：libs/klaymore-runtime.jar（由 :script-runtime 模块单独构建并复制到此处，68MB，已 relocate 好）
+//   运行方式：把 klaymore-runtime.jar 和 主 mod JAR 一起丢入 Minecraft 的 mods/ 文件夹
+//   好处：主 mod shadowJar / reobfJar 只要处理几百个主类，**秒级完成**！
+//
+//   只有当你升级 kotlin 版本、修改 relocate 规则、更换 Kotlin 编译器版本时，
+//   才需要重新执行一次：./gradlew :script-runtime:build
+
+def runtimeJar = file('libs/klaymore-runtime.jar')
+if (!runtimeJar.exists()) {
+    // 首次构建，如果 libs/klaymore-runtime.jar 不存在，提示用户先构建 runtime
+    logger.lifecycle "[Klaymore] ⚠️  未找到 libs/klaymore-runtime.jar，请先执行：./gradlew :script-runtime:build"
+}
+
 dependencies {
-    shadowImplementation "org.jetbrains.kotlin:kotlin-stdlib:$kotlin_version"
-    shadowImplementation "org.jetbrains.kotlin:kotlin-script-runtime:$kotlin_version"
-    shadowImplementation "org.jetbrains.kotlin:kotlin-scripting-common:$kotlin_version"
-    shadowImplementation "org.jetbrains.kotlin:kotlin-scripting-jvm:$kotlin_version"
-    shadowImplementation "org.jetbrains.kotlin:kotlin-scripting-jvm-host:$kotlin_version"
-    shadowImplementation "org.jetbrains.kotlin:kotlin-scripting-compiler-embeddable:$kotlin_version"
-    shadowImplementation "org.jetbrains.kotlin:kotlin-compiler-embeddable:$kotlin_version"
-    shadowImplementation "org.jetbrains.kotlinx:kotlinx-coroutines-core:1.8.1"
+    // ---- 1. 编译期符号：原 kotlin-stdlib 等（用于编译期解析 kotlin 语法糖、标准库 API）----
+    // 只在编译时可见，不进入主 mod 任何打包产物
+    compileOnly "org.jetbrains.kotlin:kotlin-stdlib:$kotlin_version"
+    compileOnly "org.jetbrains.kotlin:kotlin-script-runtime:$kotlin_version"
+    compileOnly "org.jetbrains.kotlin:kotlin-scripting-common:$kotlin_version"
+    compileOnly "org.jetbrains.kotlin:kotlin-scripting-jvm:$kotlin_version"
+    compileOnly "org.jetbrains.kotlin:kotlin-scripting-jvm-host:$kotlin_version"
+    compileOnly "org.jetbrains.kotlin:kotlin-scripting-compiler-embeddable:$kotlin_version"
+    compileOnly "org.jetbrains.kotlin:kotlin-compiler-embeddable:$kotlin_version"
+    compileOnly "org.jetbrains.kotlinx:kotlinx-coroutines-core:1.8.1"
+
+    // ---- 2. 开发运行期（runClient/runServer）加载 klaymore-runtime.jar ----
+    //   让本地跑游戏时，mod 类加载器能找到 relocate 过的 com.earthforge.klaymore.shadow.* 类
+    //   用 runtimeOnlyNonPublishable：只用于本地 runClient/runServer，绝不进入主 mod JAR，也不发布成 maven 依赖
+    if (runtimeJar.exists()) {
+        runtimeOnlyNonPublishable files(runtimeJar.path)
+    }
 }
