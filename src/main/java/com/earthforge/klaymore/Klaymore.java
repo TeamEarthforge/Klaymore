@@ -25,6 +25,14 @@ public class Klaymore {
     @Mod.EventHandler
     public void preInit(FMLPreInitializationEvent event) {
         proxy.preInit(event);
+        // ⭐ 注册 PersistenceStorage 事件总线（监听 PlayerLoggedInEvent 做懒加载重试）
+        // 该类是纯 Java 实现，不依赖 Kotlin stdlib，不会触发 LaunchClassLoader 时序问题。
+        try {
+            PersistenceStorage.initialize();
+            LOG.info("[Klaymore] PersistenceStorage event bus listener registered");
+        } catch (Throwable t) {
+            LOG.warn("[Klaymore] PersistenceStorage init had issues (non-fatal): " + t.getMessage());
+        }
     }
 
     @Mod.EventHandler
@@ -44,8 +52,8 @@ public class Klaymore {
         try {
             PersistenceStorage.loadAll();
             LOG.info("[Klaymore] Persisted bindings loaded successfully.");
-        } catch (Exception e) {
-            LOG.error("[Klaymore] Failed to load persisted bindings: " + e.getMessage(), e);
+        } catch (Throwable t) {
+            LOG.error("[Klaymore] Failed to load persisted bindings: " + t.getMessage(), t);
         }
     }
 
@@ -55,8 +63,8 @@ public class Klaymore {
         try {
             PersistenceStorage.saveAll();
             LOG.info("[Klaymore] Script bindings saved successfully.");
-        } catch (Exception e) {
-            LOG.error("[Klaymore] Failed to save script bindings: " + e.getMessage(), e);
+        } catch (Throwable t) {
+            LOG.error("[Klaymore] Failed to save script bindings: " + t.getMessage(), t);
         }
     }
 }

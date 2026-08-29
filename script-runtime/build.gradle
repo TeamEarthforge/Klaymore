@@ -28,14 +28,23 @@ dependencies {
 def shadowJarTask = tasks.named('shadowJar')
 
 shadowJarTask.configure {
-    // ⭐ 直接产出最终文件名：klaymore-runtime.jar（主 mod 的前置运行库）
-    // 用户把它和主 mod JAR 一起丢进 mods/ 文件夹即可
     archiveBaseName.set('klaymore-runtime')
     archiveClassifier.set('')
     archiveVersion.set('')
 
     zip64 = true
     mergeServiceFiles()
+
+    // ⭐ 核心修复：排除 Multi-Release JAR 的 META-INF/versions/** 目录
+    // 1.7.10 Forge 使用 ASM 5.0.3，无法识别 Java 9+ 字节码，
+    // 扫描到 META-INF/versions/9 的 Java 9 class 会抛 IllegalArgumentException 导致整个 JAR 被 ignore
+    exclude 'META-INF/versions/**'
+    // 顺带排除 module-info (Java 9 module descriptor) 和 kotlin-to-jvm-module 标记的非必须 META-INF
+    exclude 'module-info.class'
+    exclude 'META-INF/*.kotlin_metadata'
+    exclude 'META-INF/*.kotlin_module'
+    // 排除 jdk unsupported / 8+ 版本的反射工厂
+    exclude 'META-INF/services/java.lang.invoke.MethodHandles$Lookup'
 
     relocate 'kotlin', 'com.earthforge.klaymore.shadow.kotlin'
     relocate 'kotlinx', 'com.earthforge.klaymore.shadow.kotlinx'
@@ -45,10 +54,6 @@ shadowJarTask.configure {
     relocate 'org.codehaus', 'com.earthforge.klaymore.shadow.org.codehaus'
     relocate 'org.jdom', 'com.earthforge.klaymore.shadow.org.jdom'
 
-    // 不要 minimize！因为这个模块没有源代码，只是打包运行时依赖，minimize 会把所有类认为"未使用"然后全部删掉！
-
-    // ⭐ 构建完成后自动删除 tmp/.cache/expanded 解压缓存（3~5 万个散文件，对 script-runtime 毫无用处）
-    // 下次如果真的要重新 shadowJar，Gradle 会自己重新解压依赖 JAR
     doLast {
         def cacheDir = file("${buildDir}/tmp/.cache/expanded")
         if (cacheDir.exists()) {
@@ -57,7 +62,6 @@ shadowJarTask.configure {
             project.delete(cacheDir)
             println "[script-runtime] 已清理解压缓存: ${cacheDir.path} (${fileCount} 个文件)"
         }
-        // 顺带清理 tmp/shadowJar 和 tmp/jar 的中间产物（如果有）
         def tmpJar = file("${buildDir}/tmp/jar")
         if (tmpJar.exists()) project.delete(tmpJar)
         def tmpShadow = file("${buildDir}/tmp/shadowJar")
@@ -65,8 +69,6 @@ shadowJarTask.configure {
     }
 }
 
-// ⭐ 构建完成后，自动把 klaymore-runtime.jar 复制到项目根目录的 libs/ 文件夹
-// 这样主模块可以直接用 flatDir/files 引用它，完全脱离 Gradle project 依赖
 task copyRuntime(type: Copy, dependsOn: shadowJarTask) {
     from(shadowJarTask.flatMap { it.archiveFile })
     into(rootProject.file('libs'))
@@ -80,7 +82,6 @@ task copyRuntime(type: Copy, dependsOn: shadowJarTask) {
     }
 }
 
-// 让 build 任务自动执行 copyRuntime
 build.dependsOn copyRuntime
 
 artifacts {
