@@ -41,10 +41,14 @@ public final class KotlinPreloader {
     private static volatile boolean sPreloaded = false;
 
     /**
-     * Shadow relocate 前缀 —— 必须与 build.gradle.kts 和 script-runtime/build.gradle
-     * 中的 relocate 规则完全一致：
-     *   relocate("kotlin", "com.earthforge.klaymore.shadow.kotlin")
-     *   即所有 kotlin.* 类运行时都在 com.earthforge.klaymore.shadow. 前缀下。
+     * 【2025-08-30 重大变更：不再 relocate kotlin！】
+     *   之前为了理论上的冲突防范 relocate kotlin，结果引发了 builtins 字符串污染 +
+     *   开发环境命名空间不一致等一连串难解问题。
+     *   Forge 1.7.10 年代根本没有其他 mod 带 Kotlin，冲突概率 = 0。
+     *   所以现在直接使用原汁原味 kotlin.* / kotlinx.* / org.jetbrains.kotlin.* 原名。
+     *
+     * 保留 SHADOW_PREFIX 变量只是为了兼容：如果将来有需要重新 relocate，
+     * 这里改一个值就行，tryLoadClass 还是会先原命名、再 shadow 名依次尝试。
      */
     private static final String SHADOW_PREFIX = "com.earthforge.klaymore.shadow.";
 
@@ -121,18 +125,18 @@ public final class KotlinPreloader {
 
     /**
      * 尝试加载单个类，失败不抛出（静默）。
-     * 优先加载「shadow 后版本」（= klaymore-runtime.jar 中实际存在的），
-     * 再 fallback 加载「原始版本」（IDE 直接跑 class 文件时可能用到）。
+     * 2025-08-30 之后：优先加载「原始包名版本」（= klaymore-runtime.jar 实际路径，已不再 relocate），
+     * 再 fallback 加载「shadow 后版本」（兼容旧版本 / 如果将来又打开 relocate）。
      */
     private static boolean tryLoadClass(ClassLoader loader, String rawName) {
-        String shadowName = SHADOW_PREFIX + rawName;
         try {
-            Class.forName(shadowName, true, loader);
+            Class.forName(rawName, true, loader);
             return true;
         } catch (Throwable ignored) {
         }
+        String shadowName = SHADOW_PREFIX + rawName;
         try {
-            Class.forName(rawName, true, loader);
+            Class.forName(shadowName, true, loader);
             return true;
         } catch (Throwable ignored) {
         }
@@ -143,8 +147,7 @@ public final class KotlinPreloader {
      * 执行预热。整个方法是纯 Java：没有任何 kotlin.* 的 import 或符号引用。
      * 可重复调用（第 2 次起直接返回）。
      *
-     * 关键：对每个原始类名都先尝试加载 SHADOW_PREFIX 前缀的 relocate 后版本，
-     * 因为主模块 shadowJar 已经把所有 Kotlin 字节码引用重写为 shadow 包名了。
+     * 关键：对每个原始类名直接加载（不再 relocate = 不需要 shadow 前缀了）。
      *
      * @return true 表示所有类均成功加载；false 表示部分失败（非致命，日志里有详情）
      */
@@ -163,11 +166,11 @@ public final class KotlinPreloader {
                 } else {
                     failCount++;
                     if (firstFailure == null) {
-                        firstFailure = SHADOW_PREFIX + rawName;
+                        firstFailure = rawName;
                     }
                     if (failCount == 1) {
                         System.err.println("[Klaymore] KotlinPreloader: class not found on classpath (is klaymore-runtime.jar present?): "
-                            + SHADOW_PREFIX + rawName);
+                            + rawName);
                     }
                 }
             }
@@ -175,7 +178,7 @@ public final class KotlinPreloader {
             boolean allOk = failCount == 0;
             if (allOk) {
                 System.out.println("[Klaymore] KotlinPreloader OK: " + successCount
-                    + " shadowed Kotlin runtime classes preloaded (pure-Java warm-up path)");
+                    + " Kotlin runtime classes preloaded (pure-Java warm-up path, no-relocate)");
             } else {
                 System.out.println("[Klaymore] KotlinPreloader PARTIAL: "
                     + successCount + " loaded, " + failCount

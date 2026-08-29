@@ -63,9 +63,18 @@ public final class EventTargetRegistrar {
     private static final Set<Class<?>> SKIPPED = Collections.newSetFromMap(new ConcurrentHashMap<>());
 
     /**
-     * findExtractor 沿继承链查找时的缓存：(具体事件类) → (找到的提取器或 null)。
+     * Sentinel value used to cache "no extractor found" results in ConcurrentHashMap.
+     * ConcurrentHashMap does NOT allow null values, so we use this marker instead.
+     */
+    private static final Function<Object, ?> NULL_EXTRACTOR_SENTINEL = new Function<Object, Object>() {
+        @Override public Object apply(Object o) { return null; }
+    };
+
+    /**
+     * findExtractor 沿继承链查找时的缓存：(具体事件类) → (找到的提取器或哨兵值)。
      * 高频事件（EntityJoinWorldEvent、LivingUpdateEvent 等）每 tick 都有，
      * 缓存后每次派发 O(1) 命中，不用每次沿继承链遍历。
+     * 注意：ConcurrentHashMap 不允许 null 值，未命中时用 NULL_EXTRACTOR_SENTINEL 代替 null。
      */
     private static final Map<Class<?>, Function<Object, ?>> EXTRACTOR_CACHE = new ConcurrentHashMap<>();
 
@@ -126,12 +135,18 @@ public final class EventTargetRegistrar {
     public static Function<Object, ?> findExtractor(Class<?> eventClass) {
         if (eventClass == null) return null;
         Function<Object, ?> cached = EXTRACTOR_CACHE.get(eventClass);
-        if (cached != null || EXTRACTOR_CACHE.containsKey(eventClass)) {
-            // 第二个条件命中 null 缓存（"查过了，确实没有提取器"）
-            return cached;
+        if (cached != null) {
+            // 命中：要么是真正的提取器，要么是哨兵（代表"查过了，没有"）
+            return cached == NULL_EXTRACTOR_SENTINEL ? null : cached;
+        }
+        if (EXTRACTOR_CACHE.containsKey(eventClass)) {
+            // containsKey 返回 true 但 cached==null 这种情况在 ConcurrentHashMap 里不会发生，
+            // 但保留这个分支保持逻辑严谨。
+            return null;
         }
         Function<Object, ?> found = findExtractorNoCache(eventClass);
-        EXTRACTOR_CACHE.put(eventClass, found); // 即使 found==null 也缓存，避免反复查
+        // ConcurrentHashMap 不允许 null 值，没找到就存哨兵值
+        EXTRACTOR_CACHE.put(eventClass, found != null ? found : NULL_EXTRACTOR_SENTINEL);
         return found;
     }
 

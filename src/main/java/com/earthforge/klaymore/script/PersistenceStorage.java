@@ -8,10 +8,13 @@ import cpw.mods.fml.common.FMLCommonHandler;
 import cpw.mods.fml.common.eventhandler.SubscribeEvent;
 import cpw.mods.fml.common.gameevent.PlayerEvent;
 
+import net.minecraft.entity.Entity;
 import net.minecraft.entity.player.EntityPlayer;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.world.World;
 import net.minecraft.world.storage.ISaveHandler;
+import net.minecraftforge.common.MinecraftForge;
+import net.minecraftforge.event.entity.EntityJoinWorldEvent;
 
 import java.io.File;
 import java.io.FileReader;
@@ -66,6 +69,7 @@ public final class PersistenceStorage {
         if (!eventBusRegistered) {
             try {
                 FMLCommonHandler.instance().bus().register(EventBusListener.INSTANCE);
+                MinecraftForge.EVENT_BUS.register(EventBusListener.INSTANCE);
                 eventBusRegistered = true;
             } catch (Throwable t) {
                 System.err.println("[Klaymore PersistenceStorage] WARN: register event bus failed: " + t.getMessage());
@@ -170,7 +174,7 @@ public final class PersistenceStorage {
         }
     }
 
-    // ---------- 内部：懒加载重试（玩家登录事件） ----------
+    // ---------- 内部：懒加载重试（玩家登录 / 实体加入世界） ----------
 
     private static void onPlayerLogin(EntityPlayer player) {
         if (player == null) return;
@@ -184,17 +188,41 @@ public final class PersistenceStorage {
         for (Map.Entry<String, BindingEntry> e : snapshot) {
             String key = e.getKey();
             if (boundKeys.contains(key)) continue;
-            if (matchesPlayerUuid(key, playerUuid)) {
+            if (matchesEntityUuid(key, playerUuid)) {
                 tryBindEntry(key, e.getValue(), scriptDir);
             }
         }
     }
 
-    private static boolean matchesPlayerUuid(String key, UUID playerUuid) {
+    private static void onEntityJoinWorld(Entity entity) {
+        if (entity == null) return;
+        if (entity.worldObj == null || entity.worldObj.isRemote) return;
+        UUID entityUuid = entity.getUniqueID();
+        if (entityUuid == null) return;
+
+        File scriptDir = getScriptDirectory();
+        List<Map.Entry<String, BindingEntry>> snapshot =
+            new ArrayList<Map.Entry<String, BindingEntry>>(cachedBindings.entrySet());
+        int attemptCount = 0;
+        for (Map.Entry<String, BindingEntry> e : snapshot) {
+            String key = e.getKey();
+            if (boundKeys.contains(key)) continue;
+            if (matchesEntityUuid(key, entityUuid)) {
+                if (attemptCount == 0) {
+                    System.out.println("[Klaymore PersistenceStorage] EntityJoinWorld lazy bind for entity:"
+                        + entityUuid + " (class=" + entity.getClass().getSimpleName() + ")");
+                }
+                attemptCount++;
+                tryBindEntry(key, e.getValue(), scriptDir);
+            }
+        }
+    }
+
+    private static boolean matchesEntityUuid(String key, UUID entityUuid) {
         if (key == null || !key.startsWith("entity:")) return false;
         String tail = key.substring("entity:".length());
         try {
-            return UUID.fromString(tail).equals(playerUuid);
+            return UUID.fromString(tail).equals(entityUuid);
         } catch (IllegalArgumentException ex) {
             return false;
         }
