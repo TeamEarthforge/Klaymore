@@ -1,6 +1,7 @@
 package com.earthforge.klaymore.command;
 
 import java.io.File;
+import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import net.minecraft.command.CommandBase;
@@ -8,6 +9,10 @@ import net.minecraft.command.ICommandSender;
 import net.minecraft.util.ChatComponentText;
 import net.minecraft.world.World;
 
+import com.earthforge.klaymore.script.CompiledScriptCompat;
+import com.earthforge.klaymore.script.ScriptBindingManager;
+import com.earthforge.klaymore.script.ScriptContainer;
+import com.earthforge.klaymore.script.ScriptContainerFactory;
 import com.earthforge.klaymore.script.ScriptErrorReporter;
 import com.earthforge.klaymore.script.ScriptLoader;
 
@@ -22,7 +27,7 @@ public class KlaymoreCommand extends CommandBase {
 
     @Override
     public String getCommandUsage(ICommandSender sender) {
-        return "/klaymore reload [scriptName] - Recompile script(s)";
+        return "/klaymore reload [scriptName] - Hot-reload script(s) without losing data";
     }
 
     @Override
@@ -38,53 +43,72 @@ public class KlaymoreCommand extends CommandBase {
             return;
         }
 
-        // 清除编译缓存，强制重新编译
-        ScriptLoader.clearCache();
-
         if (args.length >= 2) {
-            // 重编译指定脚本（异步）
             String scriptName = args[1];
-            reloadSpecificScriptAsync(sender, scriptDir, scriptName);
+            reloadSpecificScript(sender, scriptDir, scriptName);
         } else {
-            // 重编译所有脚本（异步）
-            reloadAllScriptsAsync(sender, scriptDir);
+            reloadAllScripts(sender, scriptDir);
         }
     }
 
-    /**
-     * 异步重编译指定脚本
-     */
-    private void reloadSpecificScriptAsync(ICommandSender sender, File scriptDir, String scriptName) {
+    private void reloadSpecificScript(ICommandSender sender, File scriptDir, String scriptName) {
         File scriptFile = new File(scriptDir, scriptName);
         if (!scriptFile.exists() || !scriptFile.isFile()) {
             sender.addChatMessage(new ChatComponentText("Script file not found: " + scriptName));
             return;
         }
 
-        // 清除该文件的缓存
+        List<ScriptContainer> containers = ScriptBindingManager.findByScriptName(scriptName);
+
+        if (containers.isEmpty()) {
+            ScriptLoader.invalidateCache(scriptFile);
+            sender.addChatMessage(new ChatComponentText(
+                "§e未找到绑定此脚本的容器，仅清除了编译缓存: " + scriptName));
+            return;
+        }
+
+        sender.addChatMessage(new ChatComponentText(
+            "§e开始热重载脚本: " + scriptName + " (绑定 " + containers.size() + " 个目标)"));
+
         ScriptLoader.invalidateCache(scriptFile);
-
-        // 发送开始编译的消息
-        sender.addChatMessage(new ChatComponentText("§e正在后台编译: " + scriptName + " ..."));
-
-        // 异步编译，回调返回主线程
-        ScriptLoader.loadScriptAsync(scriptFile, compiled -> {
-            if (compiled != null) {
-                sender.addChatMessage(new ChatComponentText("§a成功编译: " + scriptName));
-            } else {
-                sender.addChatMessage(new ChatComponentText("§c编译失败: " + scriptName));
-                String lastError = ScriptErrorReporter.getLastError();
-                if (lastError != null) {
-                    sender.addChatMessage(new ChatComponentText("§c错误: " + lastError));
-                }
+        Object newCompiled = ScriptLoader.loadScript(scriptFile);
+        if (newCompiled == null) {
+            sender.addChatMessage(new ChatComponentText("§c编译失败: " + scriptName));
+            String lastError = ScriptErrorReporter.getLastError();
+            if (lastError != null) {
+                sender.addChatMessage(new ChatComponentText("§c错误: " + lastError));
             }
-        });
+            return;
+        }
+
+        int success = 0;
+        int failed = 0;
+        for (ScriptContainer container : containers) {
+            try {
+                Object newInstance = ScriptContainerFactory.instantiateScriptForReload(
+                    CompiledScriptCompat.cast(newCompiled), scriptName);
+                if (newInstance == null) {
+                    failed++;
+                    continue;
+                }
+                container.replaceScriptInstance(newInstance, CompiledScriptCompat.cast(newCompiled));
+                success++;
+            } catch (Exception e) {
+                ScriptErrorReporter.reportStatic("热重载容器失败: " + e.getMessage());
+                failed++;
+            }
+        }
+
+        if (failed == 0) {
+            sender.addChatMessage(new ChatComponentText(
+                "§a热重载完成: " + scriptName + " (" + success + " 个容器成功, 数据未丢失)"));
+        } else {
+            sender.addChatMessage(new ChatComponentText(
+                "§e热重载完成: " + scriptName + " (" + success + " 成功, " + failed + " 失败)"));
+        }
     }
 
-    /**
-     * 异步重编译所有脚本
-     */
-    private void reloadAllScriptsAsync(ICommandSender sender, File scriptDir) {
+    private void reloadAllScripts(ICommandSender sender, File scriptDir) {
         File[] scriptFiles = scriptDir.listFiles((dir, name) -> name.endsWith(".kts"));
         if (scriptFiles == null || scriptFiles.length == 0) {
             sender
@@ -92,41 +116,56 @@ public class KlaymoreCommand extends CommandBase {
             return;
         }
 
-        // 发送开始编译的消息
-        sender.addChatMessage(new ChatComponentText("§e正在后台编译 " + scriptFiles.length + " 个脚本 ..."));
+        sender.addChatMessage(new ChatComponentText("§e开始热重载所有脚本 (" + scriptFiles.length + " 个文件) ..."));
 
-        // 使用计数器跟踪完成状态
-        AtomicInteger completed = new AtomicInteger(0);
-        AtomicInteger success = new AtomicInteger(0);
-        AtomicInteger failed = new AtomicInteger(0);
+        AtomicInteger totalSuccess = new AtomicInteger(0);
+        AtomicInteger totalFailed = new AtomicInteger(0);
+        AtomicInteger totalContainers = new AtomicInteger(0);
 
         for (File scriptFile : scriptFiles) {
+            String scriptName = scriptFile.getName();
+            List<ScriptContainer> containers = ScriptBindingManager.findByScriptName(scriptName);
+
             ScriptLoader.invalidateCache(scriptFile);
 
-            ScriptLoader.loadScriptAsync(scriptFile, compiled -> {
-                if (compiled != null) {
-                    success.incrementAndGet();
-                } else {
-                    failed.incrementAndGet();
-                    String lastError = ScriptErrorReporter.getLastError();
-                    if (lastError != null) {
-                        sender
-                            .addChatMessage(new ChatComponentText("§c编译失败 " + scriptFile.getName() + ": " + lastError));
-                    }
-                }
+            if (containers.isEmpty()) {
+                continue;
+            }
 
-                // 检查是否所有脚本都完成了
-                if (completed.incrementAndGet() == scriptFiles.length) {
-                    sender.addChatMessage(
-                        new ChatComponentText("§a重编译完成: " + success.get() + " 成功, " + failed.get() + " 失败."));
+            totalContainers.addAndGet(containers.size());
+
+            Object newCompiled = ScriptLoader.loadScript(scriptFile);
+            if (newCompiled == null) {
+                totalFailed.addAndGet(containers.size());
+                String lastError = ScriptErrorReporter.getLastError();
+                if (lastError != null) {
+                    sender.addChatMessage(new ChatComponentText("§c编译失败 " + scriptName + ": " + lastError));
                 }
-            });
+                continue;
+            }
+
+            for (ScriptContainer container : containers) {
+                try {
+                    Object newInstance = ScriptContainerFactory.instantiateScriptForReload(
+                        CompiledScriptCompat.cast(newCompiled), scriptName);
+                    if (newInstance == null) {
+                        totalFailed.incrementAndGet();
+                        continue;
+                    }
+                    container.replaceScriptInstance(newInstance, CompiledScriptCompat.cast(newCompiled));
+                    totalSuccess.incrementAndGet();
+                } catch (Exception e) {
+                    ScriptErrorReporter.reportStatic("热重载容器失败: " + scriptName + " - " + e.getMessage());
+                    totalFailed.incrementAndGet();
+                }
+            }
         }
+
+        sender.addChatMessage(new ChatComponentText(
+            "§a热重载全部完成: " + totalSuccess.get() + " 容器成功, " +
+            totalFailed.get() + " 失败, 共涉及 " + totalContainers.get() + " 个容器"));
     }
 
-    /**
-     * 获取存档目录下的 klaymore 脚本文件夹
-     */
     private File getScriptDirectory(ICommandSender sender) {
         World world = sender.getEntityWorld();
         if (world != null) {

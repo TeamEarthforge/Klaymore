@@ -9,6 +9,9 @@ import cpw.mods.fml.common.event.FMLInitializationEvent;
 import cpw.mods.fml.common.event.FMLPostInitializationEvent;
 import cpw.mods.fml.common.event.FMLPreInitializationEvent;
 import cpw.mods.fml.common.event.FMLServerStartingEvent;
+import cpw.mods.fml.common.event.FMLServerStoppingEvent;
+
+import com.earthforge.klaymore.script.PersistenceStorage;
 
 @Mod(modid = Klaymore.MODID, version = Tags.VERSION, name = "MyMod", acceptedMinecraftVersions = "[1.7.10]")
 public class Klaymore {
@@ -20,27 +23,40 @@ public class Klaymore {
     public static CommonProxy proxy;
 
     @Mod.EventHandler
-    // preInit "Run before anything else. Read your config, create blocks, items, etc, and register them with the
-    // GameRegistry." (Remove if not needed)
     public void preInit(FMLPreInitializationEvent event) {
         proxy.preInit(event);
     }
 
     @Mod.EventHandler
-    // load "Do your mod setup. Build whatever data structures you care about. Register recipes." (Remove if not needed)
     public void init(FMLInitializationEvent event) {
         proxy.init(event);
     }
 
     @Mod.EventHandler
-    // postInit "Handle interaction with other mods, complete your setup based on this." (Remove if not needed)
     public void postInit(FMLPostInitializationEvent event) {
         proxy.postInit(event);
     }
 
     @Mod.EventHandler
-    // register server commands in this event handler (Remove if not needed)
     public void serverStarting(FMLServerStartingEvent event) {
         proxy.serverStarting(event);
+        LOG.info("[Klaymore] Loading persisted script bindings...");
+        try {
+            PersistenceStorage.loadAll();
+            LOG.info("[Klaymore] Persisted bindings loaded successfully.");
+        } catch (Exception e) {
+            LOG.error("[Klaymore] Failed to load persisted bindings: " + e.getMessage(), e);
+        }
+    }
+
+    @Mod.EventHandler
+    public void serverStopping(FMLServerStoppingEvent event) {
+        LOG.info("[Klaymore] Saving script bindings to disk...");
+        try {
+            PersistenceStorage.saveAll();
+            LOG.info("[Klaymore] Script bindings saved successfully.");
+        } catch (Exception e) {
+            LOG.error("[Klaymore] Failed to save script bindings: " + e.getMessage(), e);
+        }
     }
 }

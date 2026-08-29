@@ -5,9 +5,11 @@ object ScriptErrorReporter {
 
   fun report(message: String) {
     errors.add(message)
-    // 在 1.7.10 下通常用 println 或 Log4j
     println("[Klaymore Script] $message")
   }
+
+  @JvmStatic
+  fun reportStatic(message: String) = report(message)
 
   fun getLastErrors(): List<String> = errors.toList()
 

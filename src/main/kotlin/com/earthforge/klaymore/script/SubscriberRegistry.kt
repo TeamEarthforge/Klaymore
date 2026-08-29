@@ -10,28 +10,37 @@ object SubscriberRegistry {
 
   private val registry = mutableMapOf<KClass<out Any>, WeakHashMap<Any, MutableList<Handler>>>()
 
-  /**
-   * 注册一个处理器
-   *
-   * @param eventType 事件类型（KClass）
-   * @param target 绑定的目标对象（如 EntityPlayer），作为查找键
-   * @param handler 包含脚本实例和方法的处理器
-   */
   fun register(eventType: KClass<out Any>, target: Any, handler: Handler) {
     val objectMap = registry.getOrPut(eventType) { WeakHashMap() }
     objectMap.getOrPut(target) { mutableListOf() }.add(handler)
   }
 
-  /** 注销某个目标对象的所有处理器（用于解绑/卸载时清理） */
   fun unregisterAll(target: Any) {
     registry.values.forEach { it.remove(target) }
   }
 
-  /**
-   * 派发事件：根据事件类型和触发目标，找到所有处理器并执行
-   *
-   * @return 是否成功找到并执行了处理器
-   */
+  fun unregisterInstance(instance: Any) {
+    val eventTypesToClean = mutableListOf<KClass<out Any>>()
+
+    for ((eventType, objectMap) in registry) {
+      val targetsToClean = mutableListOf<Any>()
+
+      for ((target, handlers) in objectMap) {
+        handlers.removeAll { it.instance === instance }
+        if (handlers.isEmpty()) {
+          targetsToClean.add(target)
+        }
+      }
+
+      targetsToClean.forEach { objectMap.remove(it) }
+      if (objectMap.isEmpty()) {
+        eventTypesToClean.add(eventType)
+      }
+    }
+
+    eventTypesToClean.forEach { registry.remove(it) }
+  }
+
   @JvmStatic
   fun dispatch(event: Any, target: Any): Boolean {
     val handlers = registry[event::class]?.get(target) ?: return false
