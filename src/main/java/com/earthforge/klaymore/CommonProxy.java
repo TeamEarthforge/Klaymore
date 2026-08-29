@@ -1,5 +1,6 @@
 package com.earthforge.klaymore;
 
+import com.earthforge.klaymore.command.KlaymoreCommand;
 import cpw.mods.fml.common.event.FMLInitializationEvent;
 import cpw.mods.fml.common.event.FMLPostInitializationEvent;
 import cpw.mods.fml.common.event.FMLPreInitializationEvent;
@@ -11,8 +12,6 @@ public class CommonProxy {
     // GameRegistry." (Remove if not needed)
     public void preInit(FMLPreInitializationEvent event) {
         Config.synchronizeConfiguration(event.getSuggestedConfigurationFile());
-
-        Klaymore.LOG.info(Config.greeting);
         Klaymore.LOG.info("I am MyMod at version " + Tags.VERSION);
     }
 
@@ -23,5 +22,7 @@ public class CommonProxy {
     public void postInit(FMLPostInitializationEvent event) {}
 
     // register server commands in this event handler (Remove if not needed)
-    public void serverStarting(FMLServerStartingEvent event) {}
+    public void serverStarting(FMLServerStartingEvent event) {
+        event.registerServerCommand(new KlaymoreCommand());
+    }
 }

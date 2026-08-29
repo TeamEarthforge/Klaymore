@@ -33,7 +33,14 @@
  *
  * For more details, see https://docs.gradle.org/8.0.1/userguide/java_library_plugin.html#sec:java_library_configurations_graph
  */
+ext.kotlin_version = '2.1.10'
 dependencies {
-    //runtimeOnlyNonPublishable("com.github.GTNewHorizons:NotEnoughItems:2.7.69-GTNH:dev")
-    compile("com.github.GTNewHorizons:Forgelin:2.0.3-GTNH")
+    implementation "org.jetbrains.kotlin:kotlin-stdlib:$kotlin_version"
+    implementation "org.jetbrains.kotlin:kotlin-script-runtime:$kotlin_version"
+    implementation "org.jetbrains.kotlin:kotlin-scripting-common:$kotlin_version"
+    implementation "org.jetbrains.kotlin:kotlin-scripting-jvm:$kotlin_version"
+    implementation "org.jetbrains.kotlin:kotlin-scripting-jvm-host:$kotlin_version"
+    implementation "org.jetbrains.kotlin:kotlin-scripting-compiler-embeddable:$kotlin_version"
+    implementation "org.jetbrains.kotlin:kotlin-compiler-embeddable:$kotlin_version"
+    implementation "org.jetbrains.kotlinx:kotlinx-coroutines-core:1.8.1"
 }
