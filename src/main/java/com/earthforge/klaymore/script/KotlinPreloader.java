@@ -41,7 +41,16 @@ public final class KotlinPreloader {
     private static volatile boolean sPreloaded = false;
 
     /**
+     * Shadow relocate 前缀 —— 必须与 build.gradle.kts 和 script-runtime/build.gradle
+     * 中的 relocate 规则完全一致：
+     *   relocate("kotlin", "com.earthforge.klaymore.shadow.kotlin")
+     *   即所有 kotlin.* 类运行时都在 com.earthforge.klaymore.shadow. 前缀下。
+     */
+    private static final String SHADOW_PREFIX = "com.earthforge.klaymore.shadow.";
+
+    /**
      * 1.7.10 + Kotlin 开发 Mod 时，preInit 开头最容易缺的 Kotlin 运行时关键类。
+     * 这里保留「原始包名」，preload() 方法会自动为每个类生成 SHADOW_PREFIX 前缀的版本尝试加载。
      * 顺序：先 load 最底层的（Intrinsics → Function 系列 → 基础类型 → 标准库常用类）。
      * 缺了哪个类以后在报错里看到了，直接加到这里即可。
      */
@@ -101,12 +110,41 @@ public final class KotlinPreloader {
         "kotlin.KClass",
         "kotlin.jvm.internal.ClassBasedDeclarationContainer",
         "kotlin.jvm.internal.KClassImpl",
-        "kotlin.jvm.internal.KotlinReflectionInternalError"
+        "kotlin.jvm.internal.KotlinReflectionInternalError",
+
+        // ---- 额外的 shadow 后也可能直接引用 kotlinx / org.jetbrains 下的类 ----
+        "kotlinx.coroutines.Job",
+        "kotlinx.coroutines.CoroutineScope",
+        "org.jetbrains.annotations.Nullable",
+        "org.jetbrains.annotations.NotNull"
     };
+
+    /**
+     * 尝试加载单个类，失败不抛出（静默）。
+     * 优先加载「shadow 后版本」（= klaymore-runtime.jar 中实际存在的），
+     * 再 fallback 加载「原始版本」（IDE 直接跑 class 文件时可能用到）。
+     */
+    private static boolean tryLoadClass(ClassLoader loader, String rawName) {
+        String shadowName = SHADOW_PREFIX + rawName;
+        try {
+            Class.forName(shadowName, true, loader);
+            return true;
+        } catch (Throwable ignored) {
+        }
+        try {
+            Class.forName(rawName, true, loader);
+            return true;
+        } catch (Throwable ignored) {
+        }
+        return false;
+    }
 
     /**
      * 执行预热。整个方法是纯 Java：没有任何 kotlin.* 的 import 或符号引用。
      * 可重复调用（第 2 次起直接返回）。
+     *
+     * 关键：对每个原始类名都先尝试加载 SHADOW_PREFIX 前缀的 relocate 后版本，
+     * 因为主模块 shadowJar 已经把所有 Kotlin 字节码引用重写为 shadow 包名了。
      *
      * @return true 表示所有类均成功加载；false 表示部分失败（非致命，日志里有详情）
      */
@@ -118,21 +156,18 @@ public final class KotlinPreloader {
             ClassLoader ourLoader = KotlinPreloader.class.getClassLoader();
             int successCount = 0;
             int failCount = 0;
-            Throwable firstFailure = null;
-            for (String clsName : KOTLIN_REQUIRED_CLASSES) {
-                try {
-                    Class.forName(clsName, true, ourLoader);
+            String firstFailure = null;
+            for (String rawName : KOTLIN_REQUIRED_CLASSES) {
+                if (tryLoadClass(ourLoader, rawName)) {
                     successCount++;
-                } catch (Throwable t) {
+                } else {
                     failCount++;
-                    if (firstFailure == null) firstFailure = t;
-                    // 单个类失败没关系，尽量把剩下的都 try 一遍，
-                    // 因为其他类还是能命中的。
-                    // 这里用 System.err 而不是 Klaymore.LOG —— LOG 本身
-                    // 也可能走 Kotlin 初始化链路，我们这个方法尽可能纯。
+                    if (firstFailure == null) {
+                        firstFailure = SHADOW_PREFIX + rawName;
+                    }
                     if (failCount == 1) {
-                        System.err.println("[Klaymore] KotlinPreloader: some classes failed (total loaded later via Log4j): "
-                            + clsName + " -> " + t.getMessage());
+                        System.err.println("[Klaymore] KotlinPreloader: class not found on classpath (is klaymore-runtime.jar present?): "
+                            + SHADOW_PREFIX + rawName);
                     }
                 }
             }
@@ -140,12 +175,13 @@ public final class KotlinPreloader {
             boolean allOk = failCount == 0;
             if (allOk) {
                 System.out.println("[Klaymore] KotlinPreloader OK: " + successCount
-                    + " Kotlin runtime classes preloaded (pure-Java warm-up path)");
+                    + " shadowed Kotlin runtime classes preloaded (pure-Java warm-up path)");
             } else {
                 System.out.println("[Klaymore] KotlinPreloader PARTIAL: "
                     + successCount + " loaded, " + failCount
-                    + " failed. First failure was: "
-                    + (firstFailure == null ? "" : firstFailure.getMessage()));
+                    + " missing. First missing class was: "
+                    + (firstFailure == null ? "" : firstFailure)
+                    + " → please ensure klaymore-runtime.jar is placed in mods/ folder alongside Klaymore jar.");
             }
             return allOk;
         }

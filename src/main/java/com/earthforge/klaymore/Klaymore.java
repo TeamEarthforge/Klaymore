@@ -85,6 +85,7 @@ public class Klaymore {
      */
     public static boolean postScriptEvent(Object event, Object target) {
         if (event == null || target == null) return false;
+        KotlinPreloader.preload();
         try {
             return SubscriberRegistry.dispatch(event, target);
         } catch (Throwable t) {
