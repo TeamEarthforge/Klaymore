@@ -1,26 +1,25 @@
-
 pluginManagement {
-    repositories {
-        maven {
-            // RetroFuturaGradle
-            name = "GTNH Maven"
-            url = uri("https://nexus.gtnewhorizons.com/repository/public/")
-            mavenContent {
-                includeGroup("com.gtnewhorizons")
-                includeGroupByRegex("com\\.gtnewhorizons\\..+")
-            }
-        }
-        maven{
-            name = "jitpack"
-            url = uri("https://jitpack.io")
-        }
-        gradlePluginPortal()
-        mavenCentral()
-        mavenLocal()
+  repositories {
+    maven {
+      // RetroFuturaGradle
+      name = "GTNH Maven"
+      url = uri("https://nexus.gtnewhorizons.com/repository/public/")
+      mavenContent {
+        includeGroup("com.gtnewhorizons")
+        includeGroupByRegex("com\\.gtnewhorizons\\..+")
+      }
     }
+    maven {
+      name = "jitpack"
+      url = uri("https://jitpack.io")
+    }
+    gradlePluginPortal()
+    mavenCentral()
+    mavenLocal()
+  }
 }
 
 plugins {
-    id("com.gtnewhorizons.gtnhsettingsconvention") version("2.0.20")
-    kotlin("jvm") version("2.2.21") apply(false)
+  id("com.gtnewhorizons.gtnhsettingsconvention") version ("2.0.20")
+  kotlin("jvm") version ("2.2.21") apply (false)
 }

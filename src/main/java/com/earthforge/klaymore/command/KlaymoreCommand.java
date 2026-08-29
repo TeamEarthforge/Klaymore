@@ -1,14 +1,15 @@
 package com.earthforge.klaymore.command;
 
-import com.earthforge.klaymore.script.ScriptLoader;
-import com.earthforge.klaymore.script.ScriptErrorReporter;
+import java.io.File;
+import java.util.concurrent.atomic.AtomicInteger;
+
 import net.minecraft.command.CommandBase;
 import net.minecraft.command.ICommandSender;
 import net.minecraft.util.ChatComponentText;
 import net.minecraft.world.World;
 
-import java.io.File;
-import java.util.concurrent.atomic.AtomicInteger;
+import com.earthforge.klaymore.script.ScriptErrorReporter;
+import com.earthforge.klaymore.script.ScriptLoader;
 
 public class KlaymoreCommand extends CommandBase {
 
@@ -86,7 +87,8 @@ public class KlaymoreCommand extends CommandBase {
     private void reloadAllScriptsAsync(ICommandSender sender, File scriptDir) {
         File[] scriptFiles = scriptDir.listFiles((dir, name) -> name.endsWith(".kts"));
         if (scriptFiles == null || scriptFiles.length == 0) {
-            sender.addChatMessage(new ChatComponentText("No .kts script files found in: " + scriptDir.getAbsolutePath()));
+            sender
+                .addChatMessage(new ChatComponentText("No .kts script files found in: " + scriptDir.getAbsolutePath()));
             return;
         }
 
@@ -108,15 +110,15 @@ public class KlaymoreCommand extends CommandBase {
                     failed.incrementAndGet();
                     String lastError = ScriptErrorReporter.getLastError();
                     if (lastError != null) {
-                        sender.addChatMessage(new ChatComponentText("§c编译失败 " + scriptFile.getName() + ": " + lastError));
+                        sender
+                            .addChatMessage(new ChatComponentText("§c编译失败 " + scriptFile.getName() + ": " + lastError));
                     }
                 }
 
                 // 检查是否所有脚本都完成了
                 if (completed.incrementAndGet() == scriptFiles.length) {
-                    sender.addChatMessage(new ChatComponentText(
-                        "§a重编译完成: " + success.get() + " 成功, " + failed.get() + " 失败."
-                    ));
+                    sender.addChatMessage(
+                        new ChatComponentText("§a重编译完成: " + success.get() + " 成功, " + failed.get() + " 失败."));
                 }
             });
         }
@@ -128,7 +130,8 @@ public class KlaymoreCommand extends CommandBase {
     private File getScriptDirectory(ICommandSender sender) {
         World world = sender.getEntityWorld();
         if (world != null) {
-            File saveDirectory = world.getSaveHandler().getWorldDirectory();
+            File saveDirectory = world.getSaveHandler()
+                .getWorldDirectory();
             return new File(saveDirectory, SCRIPT_DIR);
         }
         return new File(".", SCRIPT_DIR);
