@@ -354,6 +354,17 @@ public final class PersistenceStorage {
                     + t.getMessage());
             }
         }
+
+        @SubscribeEvent
+        public void onEntityJoinWorld(EntityJoinWorldEvent event) {
+            if (event == null) return;
+            try {
+                onEntityJoinWorld(event.entity);
+            } catch (Throwable t) {
+                System.err.println("[Klaymore PersistenceStorage] ERROR in onEntityJoinWorld handler: "
+                    + t.getMessage());
+            }
+        }
     }
 
     // ---------- 内部：BindingEntry POJO（Gson 序列化用） ----------
