@@ -50,49 +50,53 @@ public final class WandEventBridge {
             return;
         }
 
-        // ======== 绑定：先校验文件存在 ========
+        // ======== 绑定：先校验文件存在（全局优先 + 存档 fallback） ========
         String normalizedName = normalizeScriptName(scriptName);
-        File scriptDir = PersistenceStorage.getScriptDirectory();
-        if (scriptDir == null) {
+        File globalDir = PersistenceStorage.getScriptDirectory();
+        File scriptFile = PersistenceStorage.resolveScriptFile(normalizedName);
+        if (scriptFile == null || !scriptFile.exists() || !scriptFile.isFile()) {
+            String where = (globalDir != null) ? globalDir.getAbsolutePath() : "<unknown>";
             player.addChatMessage(new ChatComponentText(EnumChatFormatting.RED +
-                "无法获取脚本目录，必须先进入一个世界"));
-            return;
-        }
-        File scriptFile = new File(scriptDir, normalizedName);
-        if (!scriptFile.exists() || !scriptFile.isFile()) {
-            player.addChatMessage(new ChatComponentText(EnumChatFormatting.RED +
-                "脚本文件不存在: " + normalizedName + " (路径: " + scriptDir.getAbsolutePath() + ")"));
+                "脚本文件不存在: " + normalizedName + " (全局脚本目录: " + where + ")"));
             return;
         }
 
         // ======== 先解绑旧的（不丢已绑定的其它脚本） ========
         unbindScriptForTarget(player, target, normalizedName);
 
-        // ======== 调用工厂绑定 ========
+        // ======== 异步编译 + 绑定（不阻塞主线程）========
+        final String fNormalizedName = normalizedName;
+        final Entity fTarget = target;
+        player.addChatMessage(new ChatComponentText(EnumChatFormatting.YELLOW +
+            "正在编译脚本: " + normalizedName + " ..."));
+
         try {
-            ScriptContainer container = ScriptContainerFactory.createAndMount(
-                normalizedName, scriptFile, target, null);
-            if (container == null) {
-                player.addChatMessage(new ChatComponentText(EnumChatFormatting.RED +
-                    "绑定失败：脚本编译或实例化失败，请查看日志"));
-                return;
-            }
+            ScriptContainerFactory.createAndMountAsync(
+                fNormalizedName, scriptFile, fTarget, null,
+                new java.util.function.Consumer<ScriptContainer>() {
+                    @Override
+                    public void accept(ScriptContainer container) {
+                        if (container == null) {
+                            player.addChatMessage(new ChatComponentText(EnumChatFormatting.RED +
+                                "绑定失败：脚本编译或实例化失败，请查看日志"));
+                            return;
+                        }
+                        // ======== 编译成功 → 立即持久化 ========
+                        try {
+                            PersistenceStorage.saveAll();
+                        } catch (Throwable ignored) {}
+
+                        player.addChatMessage(new ChatComponentText(EnumChatFormatting.GREEN +
+                            "脚本绑定成功: " + fNormalizedName));
+                        player.closeScreen();
+                    }
+                });
         } catch (Throwable t) {
-            Klaymore.LOG.error("[Klaymore Wand] bind script to entity failed: "
+            Klaymore.LOG.error("[Klaymore Wand] submit async bind task failed: "
                 + normalizedName + " -> entity " + entityId, t);
             player.addChatMessage(new ChatComponentText(EnumChatFormatting.RED +
-                "绑定异常: " + t.getMessage()));
-            return;
+                "启动异步编译失败: " + t.getMessage()));
         }
-
-        // ======== 立即持久化 ========
-        try {
-            PersistenceStorage.saveAll();
-        } catch (Throwable ignored) {}
-
-        player.addChatMessage(new ChatComponentText(EnumChatFormatting.GREEN +
-            "脚本绑定成功: " + normalizedName));
-        player.closeScreen();
     }
 
     private static void unbindTarget(EntityPlayerMP player, Entity target) {

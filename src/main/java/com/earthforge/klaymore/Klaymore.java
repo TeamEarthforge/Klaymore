@@ -244,6 +244,18 @@ public class Klaymore {
     @Mod.EventHandler
     public void postInit(FMLPostInitializationEvent event) {
         proxy.postInit(event);
+
+        // ⭐⭐⭐ 关键：在玩家点击"进入世界"按钮之前就启动后台预编译所有脚本！⭐⭐⭐
+        //   此时 Minecraft 已完全初始化，mcDataDir / server root 都已可用。
+        //   后台是单线程 daemon 池，不会占用任何游戏主线程 CPU。
+        //   等用户真正进入世界触发 EntityJoinWorld / PersistenceStorage.loadAll() 时，
+        //   脚本早就躺在 compileCache 里了，createAndMount 全程 ≤ 1ms（缓存命中 + newInstance）
+        try {
+            PersistenceStorage.precompileAllScriptsNow();
+        } catch (Throwable t) {
+            LOG.warn("[Klaymore] PostInit script pre-compile warning (non-fatal, will retry at world load): "
+                + t.getMessage());
+        }
     }
 
     @Mod.EventHandler

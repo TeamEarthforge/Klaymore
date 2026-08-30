@@ -7,9 +7,9 @@ import java.util.concurrent.atomic.AtomicInteger;
 import net.minecraft.command.CommandBase;
 import net.minecraft.command.ICommandSender;
 import net.minecraft.util.ChatComponentText;
-import net.minecraft.world.World;
 
 import com.earthforge.klaymore.script.CompiledScriptCompat;
+import com.earthforge.klaymore.script.PersistenceStorage;
 import com.earthforge.klaymore.script.ScriptBindingManager;
 import com.earthforge.klaymore.script.ScriptContainer;
 import com.earthforge.klaymore.script.ScriptContainerFactory;
@@ -17,8 +17,6 @@ import com.earthforge.klaymore.script.ScriptErrorReporter;
 import com.earthforge.klaymore.script.ScriptLoader;
 
 public class KlaymoreCommand extends CommandBase {
-
-    private static final String SCRIPT_DIR = "klaymore";
 
     @Override
     public String getCommandName() {
@@ -37,28 +35,36 @@ public class KlaymoreCommand extends CommandBase {
             return;
         }
 
-        File scriptDir = getScriptDirectory(sender);
-        if (!scriptDir.exists() || !scriptDir.isDirectory()) {
-            sender.addChatMessage(new ChatComponentText("Script directory not found: " + scriptDir.getAbsolutePath()));
+        // ⭐ 脚本目录是全局共享的：.minecraft/klaymore （与 saves/ 同级）
+        File scriptDir = PersistenceStorage.getScriptDirectory();
+        if (scriptDir == null || !scriptDir.exists() || !scriptDir.isDirectory()) {
+            String where = scriptDir == null ? "<unknown>" : scriptDir.getAbsolutePath();
+            sender.addChatMessage(new ChatComponentText("Script directory not found: " + where));
             return;
         }
 
+        sender.addChatMessage(new ChatComponentText("§b脚本目录 (全局): " + scriptDir.getAbsolutePath()));
+
         if (args.length >= 2) {
             String scriptName = args[1];
-            reloadSpecificScript(sender, scriptDir, scriptName);
+            reloadSpecificScript(sender, scriptName);
         } else {
+            // 全量 reload：清预编译标记，稍后全部重新编译
+            PersistenceStorage.resetPrecompileMarkers();
             reloadAllScripts(sender, scriptDir);
         }
     }
 
-    private void reloadSpecificScript(ICommandSender sender, File scriptDir, String scriptName) {
-        File scriptFile = new File(scriptDir, scriptName);
-        if (!scriptFile.exists() || !scriptFile.isFile()) {
-            sender.addChatMessage(new ChatComponentText("Script file not found: " + scriptName));
+    private void reloadSpecificScript(final ICommandSender sender, final String scriptName) {
+        // ⭐ 新策略：全局优先 / 存档 fallback
+        final File scriptFile = PersistenceStorage.resolveScriptFile(scriptName);
+        if (scriptFile == null || !scriptFile.exists() || !scriptFile.isFile()) {
+            sender.addChatMessage(new ChatComponentText("Script file not found: " + scriptName
+                + " (请放入 " + PersistenceStorage.getScriptDirectory().getAbsolutePath() + ")"));
             return;
         }
 
-        List<ScriptContainer> containers = ScriptBindingManager.findByScriptName(scriptName);
+        final List<ScriptContainer> containers = ScriptBindingManager.findByScriptName(scriptName);
 
         if (containers.isEmpty()) {
             ScriptLoader.invalidateCache(scriptFile);
@@ -68,112 +74,126 @@ public class KlaymoreCommand extends CommandBase {
         }
 
         sender.addChatMessage(new ChatComponentText(
-            "§e开始热重载脚本: " + scriptName + " (绑定 " + containers.size() + " 个目标)"));
+            "§e开始异步热重载脚本: " + scriptName + " (绑定 " + containers.size() + " 个目标) ..."));
 
         ScriptLoader.invalidateCache(scriptFile);
-        Object newCompiled = ScriptLoader.loadScript(scriptFile);
-        if (newCompiled == null) {
-            sender.addChatMessage(new ChatComponentText("§c编译失败: " + scriptName));
-            String lastError = ScriptErrorReporter.getLastError();
-            if (lastError != null) {
-                sender.addChatMessage(new ChatComponentText("§c错误: " + lastError));
-            }
-            return;
-        }
 
-        int success = 0;
-        int failed = 0;
-        for (ScriptContainer container : containers) {
-            try {
-                Object newInstance = ScriptContainerFactory.instantiateScriptForReload(
-                    CompiledScriptCompat.cast(newCompiled), scriptName);
-                if (newInstance == null) {
-                    failed++;
-                    continue;
+        ScriptLoader.loadScriptAsync(scriptFile, new java.util.function.Consumer<kotlin.script.experimental.api.CompiledScript>() {
+            @Override
+            public void accept(kotlin.script.experimental.api.CompiledScript newCompiled) {
+                if (newCompiled == null) {
+                    sender.addChatMessage(new ChatComponentText("§c编译失败: " + scriptName));
+                    String lastError = ScriptErrorReporter.getLastError();
+                    if (lastError != null) {
+                        sender.addChatMessage(new ChatComponentText("§c错误: " + lastError));
+                    }
+                    return;
                 }
-                container.replaceScriptInstance(newInstance, CompiledScriptCompat.cast(newCompiled));
-                success++;
-            } catch (Exception e) {
-                ScriptErrorReporter.reportStatic("热重载容器失败: " + e.getMessage());
-                failed++;
+                int success = 0;
+                int failed = 0;
+                for (ScriptContainer container : containers) {
+                    try {
+                        Object newInstance = ScriptContainerFactory.instantiateScriptForReload(
+                            newCompiled, scriptName);
+                        if (newInstance == null) {
+                            failed++;
+                            continue;
+                        }
+                        container.replaceScriptInstance(newInstance, newCompiled);
+                        success++;
+                    } catch (Exception e) {
+                        ScriptErrorReporter.reportStatic("热重载容器失败: " + e.getMessage());
+                        failed++;
+                    }
+                }
+                if (failed == 0) {
+                    sender.addChatMessage(new ChatComponentText(
+                        "§a热重载完成: " + scriptName + " (" + success + " 个容器成功, 数据未丢失)"));
+                } else {
+                    sender.addChatMessage(new ChatComponentText(
+                        "§e热重载完成: " + scriptName + " (" + success + " 成功, " + failed + " 失败)"));
+                }
             }
-        }
-
-        if (failed == 0) {
-            sender.addChatMessage(new ChatComponentText(
-                "§a热重载完成: " + scriptName + " (" + success + " 个容器成功, 数据未丢失)"));
-        } else {
-            sender.addChatMessage(new ChatComponentText(
-                "§e热重载完成: " + scriptName + " (" + success + " 成功, " + failed + " 失败)"));
-        }
+        });
     }
 
-    private void reloadAllScripts(ICommandSender sender, File scriptDir) {
-        File[] scriptFiles = scriptDir.listFiles((dir, name) -> name.endsWith(".kts"));
+    private void reloadAllScripts(final ICommandSender sender, File scriptDir) {
+        final File[] scriptFiles = scriptDir.listFiles((dir, name) -> name.endsWith(".kts"));
         if (scriptFiles == null || scriptFiles.length == 0) {
             sender
                 .addChatMessage(new ChatComponentText("No .kts script files found in: " + scriptDir.getAbsolutePath()));
             return;
         }
 
-        sender.addChatMessage(new ChatComponentText("§e开始热重载所有脚本 (" + scriptFiles.length + " 个文件) ..."));
+        sender.addChatMessage(new ChatComponentText("§e开始异步热重载所有脚本 (" + scriptFiles.length + " 个文件) ..."));
 
-        AtomicInteger totalSuccess = new AtomicInteger(0);
-        AtomicInteger totalFailed = new AtomicInteger(0);
-        AtomicInteger totalContainers = new AtomicInteger(0);
+        final AtomicInteger totalSuccess = new AtomicInteger(0);
+        final AtomicInteger totalFailed = new AtomicInteger(0);
+        final AtomicInteger totalContainers = new AtomicInteger(0);
+        final AtomicInteger filesDone = new AtomicInteger(0);
+        final int totalFiles = scriptFiles.length;
 
-        for (File scriptFile : scriptFiles) {
-            String scriptName = scriptFile.getName();
-            List<ScriptContainer> containers = ScriptBindingManager.findByScriptName(scriptName);
+        for (final File scriptFile : scriptFiles) {
+            final String scriptName = scriptFile.getName();
+            final List<ScriptContainer> containers = ScriptBindingManager.findByScriptName(scriptName);
 
             ScriptLoader.invalidateCache(scriptFile);
 
             if (containers.isEmpty()) {
+                // 没被绑定的脚本：直接编译它（为了下次绑定时走缓存），完成后不算入容器统计
+                ScriptLoader.loadScriptAsync(scriptFile, new java.util.function.Consumer<kotlin.script.experimental.api.CompiledScript>() {
+                    @Override
+                    public void accept(kotlin.script.experimental.api.CompiledScript o) {
+                        int done = filesDone.incrementAndGet();
+                        if (done == totalFiles) {
+                            sender.addChatMessage(new ChatComponentText(
+                                "§a热重载全部完成: " + totalSuccess.get() + " 容器成功, " +
+                                totalFailed.get() + " 失败, 共涉及 " + totalContainers.get() + " 个容器"));
+                        }
+                    }
+                });
                 continue;
             }
 
             totalContainers.addAndGet(containers.size());
 
-            Object newCompiled = ScriptLoader.loadScript(scriptFile);
-            if (newCompiled == null) {
-                totalFailed.addAndGet(containers.size());
-                String lastError = ScriptErrorReporter.getLastError();
-                if (lastError != null) {
-                    sender.addChatMessage(new ChatComponentText("§c编译失败 " + scriptName + ": " + lastError));
-                }
-                continue;
-            }
-
-            for (ScriptContainer container : containers) {
-                try {
-                    Object newInstance = ScriptContainerFactory.instantiateScriptForReload(
-                        CompiledScriptCompat.cast(newCompiled), scriptName);
-                    if (newInstance == null) {
-                        totalFailed.incrementAndGet();
-                        continue;
+            ScriptLoader.loadScriptAsync(scriptFile, new java.util.function.Consumer<kotlin.script.experimental.api.CompiledScript>() {
+                @Override
+                public void accept(kotlin.script.experimental.api.CompiledScript newCompiled) {
+                    if (newCompiled == null) {
+                        totalFailed.addAndGet(containers.size());
+                        String lastError = ScriptErrorReporter.getLastError();
+                        if (lastError != null) {
+                            sender.addChatMessage(new ChatComponentText("§c编译失败 " + scriptName + ": " + lastError));
+                        }
+                    } else {
+                        for (ScriptContainer container : containers) {
+                            try {
+                                Object newInstance = ScriptContainerFactory.instantiateScriptForReload(
+                                    newCompiled, scriptName);
+                                if (newInstance == null) {
+                                    totalFailed.incrementAndGet();
+                                    continue;
+                                }
+                                container.replaceScriptInstance(newInstance, newCompiled);
+                                totalSuccess.incrementAndGet();
+                            } catch (Exception e) {
+                                ScriptErrorReporter.reportStatic("热重载容器失败: " + scriptName + " - " + e.getMessage());
+                                totalFailed.incrementAndGet();
+                            }
+                        }
                     }
-                    container.replaceScriptInstance(newInstance, CompiledScriptCompat.cast(newCompiled));
-                    totalSuccess.incrementAndGet();
-                } catch (Exception e) {
-                    ScriptErrorReporter.reportStatic("热重载容器失败: " + scriptName + " - " + e.getMessage());
-                    totalFailed.incrementAndGet();
+                    int done = filesDone.incrementAndGet();
+                    if (done == totalFiles) {
+                        // 收尾：再触发一次预编译扫描（防止本次新加的脚本没被 reloadAll 的 listFiles 覆盖到）
+                        PersistenceStorage.precompileAllScriptsNow();
+                        sender.addChatMessage(new ChatComponentText(
+                            "§a热重载全部完成: " + totalSuccess.get() + " 容器成功, " +
+                            totalFailed.get() + " 失败, 共涉及 " + totalContainers.get() + " 个容器"));
+                    }
                 }
-            }
+            });
         }
-
-        sender.addChatMessage(new ChatComponentText(
-            "§a热重载全部完成: " + totalSuccess.get() + " 容器成功, " +
-            totalFailed.get() + " 失败, 共涉及 " + totalContainers.get() + " 个容器"));
-    }
-
-    private File getScriptDirectory(ICommandSender sender) {
-        World world = sender.getEntityWorld();
-        if (world != null) {
-            File saveDirectory = world.getSaveHandler()
-                .getWorldDirectory();
-            return new File(saveDirectory, SCRIPT_DIR);
-        }
-        return new File(".", SCRIPT_DIR);
     }
 
     @Override

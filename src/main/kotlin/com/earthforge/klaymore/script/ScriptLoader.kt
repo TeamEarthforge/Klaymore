@@ -420,24 +420,32 @@ object ScriptLoader {
   fun loadScriptAsync(scriptFile: File, callback: (CompiledScript?) -> Unit) {
     val path = scriptFile.absolutePath
     val lastModified = scriptFile.lastModified()
-    // 检查缓存（同步返回）
+    // 缓存命中 → 统一通过 MainThreadDispatcher 回调（如果已经在主线程，会直接运行不排队）
     if (lastModifiedCache[path] == lastModified) {
-      callback(compileCache[path])
+      MainThreadDispatcher.schedule(Runnable { callback(compileCache[path]) })
       return
     }
-    // 提交异步任务
+    // 未命中 → 提交到后台编译线程
     compileExecutor.submit {
-      val compiled = performCompile(scriptFile)
-      // 回到主线程执行回调
-      net.minecraft.client.Minecraft.getMinecraft().func_152344_a {
-        if (compiled is ResultWithDiagnostics.Success) {
-          val script = compiled.value
-          compileCache[path] = script
-          lastModifiedCache[path] = lastModified
-          callback(script)
-        } else {
-          callback(null)
-        }
+      try {
+        val compiled = performCompile(scriptFile)
+        // 编译完成 → 回到主线程更新缓存 + 回调
+        MainThreadDispatcher.schedule(Runnable {
+          if (compiled is ResultWithDiagnostics.Success<*>) {
+            @Suppress("UNCHECKED_CAST")
+            val script = (compiled as ResultWithDiagnostics.Success<CompiledScript>).value
+            compileCache[path] = script
+            lastModifiedCache[path] = lastModified
+            callback(script)
+          } else {
+            callback(null)
+          }
+        })
+      } catch (t: Throwable) {
+        System.err.println("[Klaymore ScriptLoader] Uncaught exception during async compile of "
+            + scriptFile.name + ": " + t.message)
+        t.printStackTrace(System.err)
+        MainThreadDispatcher.schedule(Runnable { callback(null) })
       }
     }
   }
