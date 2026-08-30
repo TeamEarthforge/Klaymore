@@ -166,7 +166,12 @@ object ScriptContainerFactory {
       when (classResult) {
         is ResultWithDiagnostics.Success -> {
           val kClass = classResult.value
-          kClass.java.getDeclaredConstructor().newInstance()
+          val rawInstance = kClass.java.getDeclaredConstructor().newInstance()
+          // 支持 `object Script { ... }` 等 Kotlin 单例写法：
+          // 如果脚本实例自己没有 bindTarget / bindContainer 等约定方法，
+          // 就遍历脚本类中所有静态 final INSTANCE 字段（Kotlin object 单例的特征），
+          // 找到一个"看起来像脚本实现"的 object，拿它作为真正的脚本实例。
+          unwrapScriptObject(rawInstance, scriptName)
         }
         is ResultWithDiagnostics.Failure -> {
           ScriptErrorReporter.report(
@@ -180,6 +185,63 @@ object ScriptContainerFactory {
     } finally {
       Thread.currentThread().contextClassLoader = originalLoader
     }
+  }
+
+  private val CONVENTION_METHOD_NAMES =
+      setOf("bindTarget", "bindContainer", "bindParent", "bindRoot", "bindRootInstance")
+
+  private fun looksLikeScriptImpl(obj: Any): Boolean {
+    val methods = obj.javaClass.declaredMethods
+    // 有任意约定方法 → 是脚本
+    if (methods.any { it.name in CONVENTION_METHOD_NAMES }) return true
+    // 有 @Subscribe 方法 → 是脚本
+    return try {
+      val subscribeAnno =
+          Class.forName(
+              "com.earthforge.klaymore.script.Subscribe",
+              true,
+              Launch.classLoader)
+      methods.any { m -> m.annotations.any { it.annotationClass.java == subscribeAnno } }
+    } catch (_: Throwable) {
+      false
+    }
+  }
+
+  private fun unwrapScriptObject(rawInstance: Any, scriptName: String): Any {
+    // 先看外壳本身是不是脚本实现
+    if (looksLikeScriptImpl(rawInstance)) return rawInstance
+
+    // 再扫描所有嵌套 Kotlin object 单例（静态 INSTANCE 字段）
+    val rawClass = rawInstance.javaClass
+    try {
+      for (declaredClass in rawClass.declaredClasses) {
+        try {
+          val instanceField =
+              try {
+                declaredClass.getField("INSTANCE")
+              } catch (_: NoSuchFieldException) {
+                continue
+              }
+          val mods = instanceField.modifiers
+          if (!java.lang.reflect.Modifier.isStatic(mods) ||
+              !java.lang.reflect.Modifier.isFinal(mods)) continue
+          instanceField.isAccessible = true
+          val obj = instanceField.get(null) ?: continue
+          if (looksLikeScriptImpl(obj)) {
+            println("[Klaymore ScriptFactory] Detected Kotlin 'object' wrapper in "
+                + "$scriptName, using ${declaredClass.simpleName}.INSTANCE as actual script instance")
+            return obj
+          }
+        } catch (_: Throwable) {
+          // ignore this inner class, try next
+        }
+      }
+    } catch (_: Throwable) {
+      // ignore
+    }
+
+    // 什么都没找到，就返回原实例
+    return rawInstance
   }
 
   @JvmStatic
