@@ -188,7 +188,7 @@ object ScriptContainerFactory {
   }
 
   private val CONVENTION_METHOD_NAMES =
-      setOf("bindTarget", "bindContainer", "bindParent", "bindRoot", "bindRootInstance")
+      setOf("bindTarget", "bindContainer", "bindParent")
 
   private fun looksLikeScriptImpl(obj: Any): Boolean {
     val methods = obj.javaClass.declaredMethods

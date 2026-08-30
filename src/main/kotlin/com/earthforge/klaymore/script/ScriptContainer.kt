@@ -229,13 +229,6 @@ object ScriptInjectionUtils {
     invokeConventionMethod(instance, "bindTarget", target)
     invokeConventionMethod(instance, "bindParent", parentTarget)
     invokeConventionMethod(instance, "bindContainer", container)
-    val rootContainer = GlobalRoot.container
-    if (rootContainer != null) {
-      invokeConventionMethod(instance, "bindRoot", rootContainer)
-      GlobalRoot.getInstance()?.let { rootInstance ->
-        invokeConventionMethod(instance, "bindRootInstance", rootInstance)
-      }
-    }
   }
 
   @JvmStatic
