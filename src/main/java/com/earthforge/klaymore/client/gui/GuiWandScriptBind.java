@@ -1,6 +1,5 @@
 package com.earthforge.klaymore.client.gui;
 
-import com.earthforge.klaymore.Klaymore;
 import com.earthforge.klaymore.MinecraftDirectory;
 import com.earthforge.klaymore.network.KlaymoreNetwork;
 import com.earthforge.klaymore.wand.WandBindPacket;
@@ -35,8 +34,8 @@ public class GuiWandScriptBind extends GuiScreen {
     private final int targetEntityId;
     private Entity targetEntity;
 
-    private static final int GUI_WIDTH = 300;          // 加宽，放全局路径提示
-    private static final int GUI_HEIGHT = 290;         // 加高，放下目录提示/迁移提醒 + 列表 + 按钮
+    private static final int GUI_WIDTH = 300;
+    private static final int GUI_HEIGHT = 225;
 
     private int guiLeft;
     private int guiTop;
@@ -73,9 +72,6 @@ public class GuiWandScriptBind extends GuiScreen {
         // ⭐⭐⭐ 新策略：脚本现在是「全局共享」，放 .minecraft/klaymore （与 saves/ 同级）⭐⭐⭐
         //   这样 Mod PostInit 时就能提前预编译所有脚本，玩家进入世界时 0 等待挂载。
         this.rootScriptDir = MinecraftDirectory.getGlobalScriptDirectory();
-        if (this.rootScriptDir == null) {
-            this.rootScriptDir = new File(".", "klaymore");
-        }
         if (!this.rootScriptDir.exists()) {
             if (!this.rootScriptDir.mkdirs()) {
                 System.err.println("[Klaymore Wand] WARN: cannot mkdir global script dir: "
@@ -85,7 +81,7 @@ public class GuiWandScriptBind extends GuiScreen {
 
         // 检测旧位置是否有遗留脚本 → 给 GUI 上的「迁移提示」用
         this.legacySaveScriptDir = getLegacySaveScriptDirectorySafe();
-        if (this.legacySaveScriptDir != null && hasScriptsIn(this.legacySaveScriptDir)) {
+        if (hasScriptsIn(this.legacySaveScriptDir)) {
             System.out.println("[Klaymore Wand] NOTICE: legacy scripts detected in save-local klaymore dir ("
                 + this.legacySaveScriptDir.getAbsolutePath() + "). "
                 + "Please move them to global dir: " + this.rootScriptDir.getAbsolutePath());
@@ -215,12 +211,12 @@ public class GuiWandScriptBind extends GuiScreen {
         guiTop = (height - GUI_HEIGHT) / 2;
 
         int listX = guiLeft + 10;
-        int listY = guiTop + 93;               // 下移 43：容下顶部的「全局目录 + 迁移提醒」
+        int listY = guiTop + 78;
         int listW = GUI_WIDTH - 20;
-        int listH = 128;                       // 列表高度保持不变
-        fileSlot = new FileSlot(mc, listW, listH, listY, listY + listH, listX, 16);
+        int listH = 94;
+        fileSlot = new FileSlot(mc, listW, listH, listY, listY + listH, listX, 14);
 
-        int scriptFieldY = guiTop + 243;       // 输入框同步下移 43 (200+43)
+        int scriptFieldY = guiTop + 184;
         scriptNameField = new GuiTextField(fontRendererObj,
             guiLeft + 10, scriptFieldY, GUI_WIDTH - 114, 18);
         scriptNameField.setMaxStringLength(160);
@@ -234,7 +230,7 @@ public class GuiWandScriptBind extends GuiScreen {
         buttonList.add(btnRefresh);
 
         int btnWidth = 80;
-        int btnY = guiTop + 268;               // 底部按钮同步下移 (228+40)
+        int btnY = guiTop + 204;
         int gap = 6;
         int total = btnWidth * 3 + gap * 2;
         int startX = guiLeft + (GUI_WIDTH - total) / 2;
@@ -403,7 +399,7 @@ public class GuiWandScriptBind extends GuiScreen {
         drawPanel(guiLeft, guiTop, GUI_WIDTH, GUI_HEIGHT);
 
         String title = I18n.format("gui.klaymore.title");
-        drawCenteredString(fontRendererObj, title, guiLeft + GUI_WIDTH / 2, guiTop + 8, 0xFFFFFFFF);
+        drawCenteredString(fontRendererObj, title, guiLeft + GUI_WIDTH / 2, guiTop + 5, 0xFFFFFFFF);
 
         String targetName;
         if (targetEntity != null) {
@@ -414,49 +410,44 @@ public class GuiWandScriptBind extends GuiScreen {
             targetName = "Entity #" + targetEntityId + " (missing)";
         }
         String targetLine = I18n.format("gui.klaymore.target", targetName);
-        fontRendererObj.drawString(targetLine, guiLeft + 12, guiTop + 26, 0xFFFFFF);
+        fontRendererObj.drawString(targetLine, guiLeft + 12, guiTop + 18, 0xFFFFFF);
 
-        // ⭐ 新增：全局脚本目录提示（黄色，用户一眼看到）+ 如果有旧存档脚本，追加橙色迁移提醒
-        int tipY = guiTop + 40;
-        String globalTip = EnumChatFormatting.YELLOW + "脚本目录（全局共享）:";
+        int tipY = guiTop + 29;
+        String globalTip = EnumChatFormatting.YELLOW + "脚本目录:";
         fontRendererObj.drawString(globalTip, guiLeft + 12, tipY, 0xFFFFFF);
-        tipY += 11;
+        tipY += 9;
         String path = rootScriptDir == null ? "<unknown>" : rootScriptDir.getAbsolutePath();
-        // 路径过长就截断中间
         int maxW = GUI_WIDTH - 36;
         if (fontRendererObj.getStringWidth(path) > maxW) {
-            String halfPrefix = path.substring(0, Math.min(22, path.length()));
-            String halfSuffix = path.substring(Math.max(0, path.length() - 22));
+            String halfPrefix = path.substring(0, Math.min(20, path.length()));
+            String halfSuffix = path.substring(Math.max(0, path.length() - 20));
             path = halfPrefix + "..." + halfSuffix;
         }
         fontRendererObj.drawString("  " + path, guiLeft + 12, tipY, 0xAAFFAA);
-        tipY += 12;
+        tipY += 10;
 
-        // 迁移提醒（如果旧位置有脚本）
         if (legacySaveScriptDir != null && hasScriptsIn(legacySaveScriptDir)) {
             String migrateTip1 = EnumChatFormatting.GOLD + "提示:" + EnumChatFormatting.RESET
                 + " 检测到存档内旧脚本:";
             String p = legacySaveScriptDir.getAbsolutePath();
             if (fontRendererObj.getStringWidth(p) > maxW) {
-                p = p.substring(0, Math.min(20, p.length())) + "..."
-                    + p.substring(Math.max(0, p.length() - 20));
+                p = p.substring(0, Math.min(18, p.length())) + "..."
+                    + p.substring(Math.max(0, p.length() - 18));
             }
             String migrateTip2 = "  " + p + "  "
-                + EnumChatFormatting.GRAY + "→ 移动到全局目录生效";
+                + EnumChatFormatting.GRAY + "→ 移动到全局目录";
             fontRendererObj.drawString(migrateTip1, guiLeft + 12, tipY, 0xFFFFFF);
-            tipY += 10;
+            tipY += 9;
             fontRendererObj.drawString(migrateTip2, guiLeft + 12, tipY, 0xFFFFFF);
-            tipY += 12;
+            tipY += 10;
         }
 
-        // 当前相对目录显示：移到列表上方
         String curDirLabel;
         if (currentDir == null) curDirLabel = "";
         else curDirLabel = relativePathOf(currentDir);
         if (curDirLabel.isEmpty()) curDirLabel = "(root)";
         String dirLabel = I18n.format("gui.klaymore.dir", curDirLabel);
         fontRendererObj.drawString(dirLabel, guiLeft + 12, tipY, 0xAAAAFF);
-        tipY += 12; // 让列表下方 drawScreen 用
 
         // -------- 阶段 3：只重绘列表「可见内容 + 滚动条」（跳过 overlayBackground 泥土源） --------
         if (fileSlot != null) {
@@ -464,8 +455,7 @@ public class GuiWandScriptBind extends GuiScreen {
             catch (Throwable ignored) {}
         }
 
-        // Script: 标签，放在输入框上方 12px（输入框 Y = guiTop + 243）
-        fontRendererObj.drawString(I18n.format("gui.klaymore.script"), guiLeft + 12, guiTop + 231, 0xA0A0A0);
+        fontRendererObj.drawString(I18n.format("gui.klaymore.script"), guiLeft + 12, guiTop + 172, 0xA0A0A0);
         if (scriptNameField != null) scriptNameField.drawTextBox();
 
         if (lastStatus != null && !lastStatus.isEmpty()
@@ -509,6 +499,10 @@ public class GuiWandScriptBind extends GuiScreen {
 
     @Override
     public boolean doesGuiPauseGame() { return false; }
+
+    public EntityPlayer getPlayer() {
+        return player;
+    }
 
     // =================================================================
     // 内部：列表项数据
