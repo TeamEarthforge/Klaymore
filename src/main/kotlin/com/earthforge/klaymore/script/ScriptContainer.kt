@@ -105,6 +105,10 @@ class ScriptContainer(
 
   fun getTarget(): Any? = _targetRef.get()
 
+  fun getRoot(): ScriptContainer? = GlobalRoot.container
+
+  fun getRootInstance(): Any? = GlobalRoot.getInstance()
+
   fun getScriptInstance(): Any? = _scriptInstance
 
   fun getCompiledScript(): CompiledScript = _compiledScript
@@ -225,6 +229,13 @@ object ScriptInjectionUtils {
     invokeConventionMethod(instance, "bindTarget", target)
     invokeConventionMethod(instance, "bindParent", parentTarget)
     invokeConventionMethod(instance, "bindContainer", container)
+    val rootContainer = GlobalRoot.container
+    if (rootContainer != null) {
+      invokeConventionMethod(instance, "bindRoot", rootContainer)
+      GlobalRoot.getInstance()?.let { rootInstance ->
+        invokeConventionMethod(instance, "bindRootInstance", rootInstance)
+      }
+    }
   }
 
   @JvmStatic

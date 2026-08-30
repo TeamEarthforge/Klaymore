@@ -21,6 +21,7 @@ import java.util.function.Function;
 import com.earthforge.klaymore.event.ForgeEventHandler;
 import com.earthforge.klaymore.script.BuiltinTargetExtractors;
 import com.earthforge.klaymore.script.EventTargetRegistrar;
+import com.earthforge.klaymore.script.GlobalRoot;
 import com.earthforge.klaymore.script.KotlinPreloader;
 import com.earthforge.klaymore.script.PersistenceStorage;
 import com.earthforge.klaymore.script.SubscriberRegistry;
@@ -261,6 +262,12 @@ public class Klaymore {
     @Mod.EventHandler
     public void serverStarting(FMLServerStartingEvent event) {
         proxy.serverStarting(event);
+        LOG.info("[Klaymore] Mounting global Root.kts...");
+        try {
+            GlobalRoot.mountIfPresent();
+        } catch (Throwable t) {
+            LOG.error("[Klaymore] Failed to mount Root.kts: " + t.getMessage(), t);
+        }
         LOG.info("[Klaymore] Loading persisted script bindings...");
         try {
             PersistenceStorage.loadAll();
@@ -278,6 +285,12 @@ public class Klaymore {
             LOG.info("[Klaymore] Script bindings saved successfully.");
         } catch (Throwable t) {
             LOG.error("[Klaymore] Failed to save script bindings: " + t.getMessage(), t);
+        }
+        LOG.info("[Klaymore] Unmounting global Root.kts...");
+        try {
+            GlobalRoot.unmount();
+        } catch (Throwable t) {
+            LOG.error("[Klaymore] Failed to unmount Root.kts: " + t.getMessage(), t);
         }
         try {
             PersistenceStorage.cleanupOnWorldExit();
