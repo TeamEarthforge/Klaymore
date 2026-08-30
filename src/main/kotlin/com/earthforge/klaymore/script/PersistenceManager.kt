@@ -115,5 +115,10 @@ class DummyAdapter : PersistenceAdapter<Dummy> {
 
   override fun generateKey(instance: Dummy): String = "dummy:${instance.id}"
 
-  override fun resolve(key: String): Dummy = Dummy(key)
+  override fun resolve(key: String): Dummy {
+    if ("root" == key) {
+      return GlobalRoot.target
+    }
+    return Dummy(key)
+  }
 }

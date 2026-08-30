@@ -262,18 +262,36 @@ public class Klaymore {
     @Mod.EventHandler
     public void serverStarting(FMLServerStartingEvent event) {
         proxy.serverStarting(event);
-        LOG.info("[Klaymore] Mounting global Root.kts...");
+
+        // ══════════════════════════════════════════════════════════════════
+        // 三阶段完美时序：避免 Root 容器被创建两次 + Root init 读不到 bootCount
+        // ══════════════════════════════════════════════════════════════════
+        // 阶段 ①：只把 bindings.json 读进内存缓存，不挂载任何实体
+        LOG.info("[Klaymore] Loading persisted script bindings (cache only)...");
+        try {
+            PersistenceStorage.loadBindingsCacheOnly();
+            LOG.info("[Klaymore] Persisted bindings loaded into cache.");
+        } catch (Throwable t) {
+            LOG.error("[Klaymore] Failed to load persisted bindings cache: " + t.getMessage(), t);
+        }
+        // 阶段 ②：挂载 Root，此时 getCachedBindingData("dummy:root") 能读到 bootCount
+        //         → 直接作为 initialPersistentData 传给 Root 容器（init 立刻能用）
+        //         → 挂载后调用 markBound("dummy:root")，把 key 填进 boundKeys 占坑
+        LOG.info("[Klaymore] Mounting global Root.kts (booting with cached persistent data)...");
         try {
             GlobalRoot.mountIfPresent();
         } catch (Throwable t) {
             LOG.error("[Klaymore] Failed to mount Root.kts: " + t.getMessage(), t);
         }
-        LOG.info("[Klaymore] Loading persisted script bindings...");
+        // 阶段 ③：真正处理实体绑定（玩家/NPC/方块脚本）
+        //         dummy:root 已在 boundKeys 里 → tryBindEntry 第一行就 return 跳过
+        //         → 不会再为 Root 创建第二个容器 ✅
+        LOG.info("[Klaymore] Processing entity script bindings from cache...");
         try {
-            PersistenceStorage.loadAll();
-            LOG.info("[Klaymore] Persisted bindings loaded successfully.");
+            PersistenceStorage.processAllBindings();
+            LOG.info("[Klaymore] Entity bindings processing complete.");
         } catch (Throwable t) {
-            LOG.error("[Klaymore] Failed to load persisted bindings: " + t.getMessage(), t);
+            LOG.error("[Klaymore] Failed to process entity bindings: " + t.getMessage(), t);
         }
     }
 

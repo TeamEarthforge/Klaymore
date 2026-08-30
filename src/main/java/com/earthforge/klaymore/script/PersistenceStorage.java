@@ -100,6 +100,19 @@ public final class PersistenceStorage {
 
     // ---------- Public API ----------
 
+    public static synchronized Map<String, ?> getCachedBindingData(String key) {
+        if (key == null) return Collections.emptyMap();
+        BindingEntry e = cachedBindings.get(key);
+        return e == null || e.data == null ? Collections.emptyMap() : e.data;
+    }
+
+    public static synchronized void markBound(String key) {
+        if (key != null) {
+            boundKeys.add(key);
+            pendingKeys.remove(key);
+        }
+    }
+
     public static synchronized void initialize() {
         if (!eventBusRegistered) {
             try {
@@ -299,13 +312,25 @@ public final class PersistenceStorage {
     }
 
     public static synchronized void loadAll() {
+        loadBindingsCacheOnly();
+        processAllBindings();
+    }
+
+    /**
+     * loadAll 的第一段：只读 bindings.json 到内存缓存（cachedBindings）+ 做预编译提交，
+     * 但**不**执行任何实体/脚本的挂载（不调 tryBindEntry）。
+     *
+     * 配合 processAllBindings() + GlobalRoot.mountIfPresent() 形成三阶段完美时序：
+     *   ① loadBindingsCacheOnly()  → cachedBindings 有 bootCount 等持久化数据
+     *   ② GlobalRoot.mountIfPresent() → 从 getCachedBindingData 读 bootCount 当
+     *                                    initialPersistentData，创建 Root 容器，
+     *                                    markBound("dummy:root") 占坑
+     *   ③ processAllBindings()     → 处理 dummy:root 时 boundKeys 已包含 → 直接 return
+     *                                不新建第二容器；其他实体/玩家脚本正常挂载
+     */
+    public static synchronized void loadBindingsCacheOnly() {
         initialize();
 
-        // ⭐ 预编译所有脚本（进入世界前的最后机会）
-        // 正常情况下 PostInit 就已经提交过了，但：
-        //   - 专用服务器上 PostInit 时 world save handler 还没初始化好
-        //   - 用户是第一次进入世界，PostInit 时目录不存在，之后才被创建
-        // 所以这里再触发一次；去重集合会自动跳过已经提交过的脚本。
         precompileAllScriptsNow();
 
         File bindingsFile = getBindingsFileSafe();
@@ -338,7 +363,6 @@ public final class PersistenceStorage {
 
         // ⭐ 优化：bindings.json 中引用到的脚本，即便没有在全局目录预编译扫描里，
         // 也提前扔进异步编译池（比如引用了子目录里的脚本，或刚迁移的存档内旧脚本）。
-        // 等实体真正加载完触发 EntityJoinWorld 时，编译早完成了 → 零等待挂载。
         for (BindingEntry entry : cachedBindings.values()) {
             File f = resolveScriptFile(entry.script);
             if (f != null && f.exists() && f.isFile()) {
@@ -347,14 +371,20 @@ public final class PersistenceStorage {
                 catch (Throwable t) { canonicalKey = f.getAbsolutePath(); }
                 if (!PRECOMPILE_SUBMITTED.add(canonicalKey)) continue;
                 try {
-                    // 预编译：回调空，只写入 compileCache 就够了
                     ScriptLoader.loadScriptAsync(f, new java.util.function.Consumer<CompiledScript>() {
                         @Override public void accept(CompiledScript c) { }
                     });
                 } catch (Throwable ignore) {}
             }
         }
+    }
 
+    /**
+     * loadAll 的第二段：真正遍历 cachedBindings 尝试挂载实体/脚本。
+     * GlobalRoot 必须在调用它之前就 mount 完毕（并 markBound "dummy:root"），
+     * 这样这里不会为 dummy:root 重复创建第二个容器。
+     */
+    public static synchronized void processAllBindings() {
         // 启动时扫描：实体尚未加载 → resolve 几乎都 null（除了已经在 server.worldServers 里的极少实例）
         // 真正的绑定由 EntityJoinWorld / PlayerLoggedIn 事件触发；
         // 这里保留扫描仅为了打印日志数量统计 + 兼容极少数"服务器 tick 中加入的实体"情况。
@@ -472,6 +502,21 @@ public final class PersistenceStorage {
                     }
                 } catch (Throwable ignore) {}
             }
+        }
+
+        if (target == GlobalRoot.INSTANCE.getTarget() && GlobalRoot.INSTANCE.isLoaded()) {
+            ScriptContainer rootContainer = GlobalRoot.INSTANCE.getContainer();
+            if (rootContainer != null && entry.data != null && !entry.data.isEmpty()) {
+                try {
+                    rootContainer.importPersistentData(entry.data);
+                } catch (Throwable t) {
+                    System.err.println("[Klaymore PersistenceStorage] failed to import persistent data to GlobalRoot: "
+                        + t.getMessage());
+                }
+            }
+            boundKeys.add(key);
+            pendingKeys.remove(key);
+            return;
         }
 
         // ⭐ 新策略：resolveScriptFile() — 全局优先，存档 fallback

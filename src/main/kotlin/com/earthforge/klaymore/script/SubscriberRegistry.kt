@@ -137,14 +137,109 @@ object SubscriberRegistry {
     }
   }
 
+  private fun isClientSide(event: Any): Boolean {
+    // 优先通过事件里的 World/Entity 判断 isRemote —— 集成服务器中最可靠
+    try {
+      val ev = event as Any
+      val worldCandidates = mutableListOf<Any?>()
+      // 常见字段: player / entity / world / worldObj
+      val tryFields = arrayOf("player", "entity", "living", "p", "e")
+      for (name in tryFields) {
+        try {
+          val f = ev.javaClass.getField(name) ?: continue
+          f.isAccessible = true
+          worldCandidates.add(f.get(ev))
+        } catch (_: Throwable) {}
+        try {
+          val m = ev.javaClass.getMethod("get" + name.replaceFirstChar { if (it.isLowerCase()) it.titlecase() else it.toString() }) ?: continue
+          worldCandidates.add(m.invoke(ev))
+        } catch (_: Throwable) {}
+      }
+      // 直接带 world 的字段: world / worldObj
+      val tryWorldFields = arrayOf("world", "worldObj")
+      for (name in tryWorldFields) {
+        try {
+          val f = ev.javaClass.getField(name) ?: continue
+          f.isAccessible = true
+          worldCandidates.add(f.get(ev))
+        } catch (_: Throwable) {}
+        try {
+          val m = ev.javaClass.getMethod("get" + name.replaceFirstChar { if (it.isLowerCase()) it.titlecase() else it.toString() }) ?: continue
+          worldCandidates.add(m.invoke(ev))
+        } catch (_: Throwable) {}
+      }
+      for (obj in worldCandidates) {
+        if (obj == null) continue
+        var w: Any? = obj
+        // 如果拿到的是 Entity（含 Player），再往里取 .worldObj / .world
+        try {
+          val wf = obj.javaClass.getField("worldObj")
+          wf.isAccessible = true
+          val v = wf.get(obj)
+          if (v != null) w = v
+        } catch (_: Throwable) {
+          try {
+            val wm = obj.javaClass.getMethod("getWorldObj")
+            val v = wm.invoke(obj)
+            if (v != null) w = v
+          } catch (_: Throwable) {}
+        }
+        try {
+          val wf = obj.javaClass.getField("world")
+          wf.isAccessible = true
+          val v = wf.get(obj)
+          if (v != null) w = v
+        } catch (_: Throwable) {
+          try {
+            val wm = obj.javaClass.getMethod("getWorld")
+            val v = wm.invoke(obj)
+            if (v != null) w = v
+          } catch (_: Throwable) {}
+        }
+        // 检查 World.isRemote
+        if (w != null) {
+          try {
+            val rf = w.javaClass.getField("isRemote")
+            rf.isAccessible = true
+            if (rf.getBoolean(w)) return true
+            // 找到且为 false（服务端），就不用继续查了
+            return false
+          } catch (_: Throwable) {
+            try {
+              val rm = w.javaClass.getMethod("isRemote")
+              val r = rm.invoke(w) as? Boolean
+              if (r != null) return r
+            } catch (_: Throwable) {}
+          }
+        }
+      }
+    } catch (_: Throwable) {}
+    // Fallback: 用 FML CommonHandler 判断线程所属 side
+    return try {
+      val fmlCls = Class.forName("cpw.mods.fml.common.FMLCommonHandler")
+      val inst = fmlCls.getMethod("instance").invoke(null)
+      val side = fmlCls.getMethod("getEffectiveSide").invoke(inst)
+      val sideCls = Class.forName("cpw.mods.fml.relauncher.Side")
+      val clientConst = sideCls.getField("CLIENT").get(null)
+      side == clientConst
+    } catch (_: Throwable) {
+      false
+    }
+  }
+
   @JvmStatic
   fun dispatch(event: Any): Boolean {
     val eventClass = event.javaClass
     if (EventTargetRegistrar.isEventSkipped(eventClass)) {
       return false
     }
+    if (isClientSide(event)) {
+      return false
+    }
     val javaExtractor = EventTargetRegistrar.findExtractor(eventClass)
-    return if (javaExtractor != null) {
+    val called = HashSet<Handler>()
+    var dispatched = false
+    if (javaExtractor != null) {
       val rawTarget =
           try {
             javaExtractor.apply(event)
@@ -157,26 +252,57 @@ object SubscriberRegistry {
       if (candidates.isNotEmpty()) {
         com.earthforge.klaymore.Klaymore.LOG.debug(
             "[Klaymore] Dispatching ${eventClass.simpleName} to ${candidates.size} target(s): $candidates")
-        val called = HashSet<Handler>()
-        var dispatched = false
         for (t in candidates) {
           if (dispatchToTarget(event, t, called)) {
             dispatched = true
           }
         }
-        dispatched
       } else {
         com.earthforge.klaymore.Klaymore.LOG.debug(
-            "[Klaymore] Extractor returned no valid target(s) for ${eventClass.simpleName}, skipping dispatch (no broadcast for extractor-registered events)")
-        false
+            "[Klaymore] Extractor returned no valid target(s) for ${eventClass.simpleName}, skipping target dispatch (root still receives)")
       }
     } else {
       if (!EventTargetRegistrar.isKnownNoTargetEvent(eventClass)) {
         com.earthforge.klaymore.Klaymore.LOG.warn(
             "[Klaymore] No target extractor for event ${eventClass.simpleName}, dispatching to all subscribers")
       }
-      dispatchToAll(event)
+      if (dispatchToAllWithCalled(event, called)) {
+        dispatched = true
+      }
     }
+    val rootTarget = GlobalRoot.target
+    if (dispatchToTarget(event, rootTarget, called)) {
+      dispatched = true
+    }
+    return dispatched
+  }
+
+  private fun dispatchToAllWithCalled(event: Any, called: MutableSet<Handler>): Boolean {
+    var dispatched = false
+    val exactMap = registry[event::class]
+    if (exactMap != null) {
+      for ((_, handlers) in exactMap) {
+        for (handler in handlers) {
+          if (called.add(handler)) {
+            safeInvoke(handler, event)
+            dispatched = true
+          }
+        }
+      }
+    }
+    for ((eventType, objectMap) in registry) {
+      if (eventType != event::class && eventType.java.isAssignableFrom(event.javaClass)) {
+        for ((_, handlers) in objectMap) {
+          for (handler in handlers) {
+            if (called.add(handler)) {
+              safeInvoke(handler, event)
+              dispatched = true
+            }
+          }
+        }
+      }
+    }
+    return dispatched
   }
 
   @JvmStatic

@@ -4,6 +4,7 @@ import java.io.File
 
 object GlobalRoot {
   const val ROOT_SCRIPT_NAME = "Root.kts"
+  const val ROOT_BINDING_KEY = "dummy:root"
   private val rootTarget = Dummy("root")
 
   @Volatile
@@ -31,11 +32,16 @@ object GlobalRoot {
       println("[Klaymore GlobalRoot] $ROOT_SCRIPT_NAME not found in ${scriptDir.absolutePath}, skipping global root mount.")
       return false
     }
-    return mountSync(rootFile)
+    val initData = PersistenceStorage.getCachedBindingData(ROOT_BINDING_KEY)
+    val initial = if (initData.isEmpty()) null else initData
+    return mountSync(rootFile, initial)
   }
 
   @JvmStatic
-  fun mountSync(rootFile: File): Boolean {
+  fun mountSync(rootFile: File): Boolean = mountSync(rootFile, null)
+
+  @JvmStatic
+  fun mountSync(rootFile: File, initialPersistentData: Map<String, *>?): Boolean {
     unmount()
     println("[Klaymore GlobalRoot] Sync mounting $ROOT_SCRIPT_NAME from ${rootFile.absolutePath} ...")
     val container = ScriptContainerFactory.createAndMount(
@@ -43,13 +49,14 @@ object GlobalRoot {
         rootFile,
         rootTarget,
         null,
-        null
+        initialPersistentData
     )
     return if (container == null) {
       System.err.println("[Klaymore GlobalRoot] FAILED to mount $ROOT_SCRIPT_NAME (compile/instantiate error, see logs)")
       false
     } else {
       _rootContainer = container
+      PersistenceStorage.markBound(ROOT_BINDING_KEY)
       println("[Klaymore GlobalRoot] $ROOT_SCRIPT_NAME mounted successfully. All scripts can now access it via container.root or bindRoot()")
       true
     }
@@ -58,18 +65,21 @@ object GlobalRoot {
   @JvmStatic
   fun mount(rootFile: File) {
     unmount()
+    val initData = PersistenceStorage.getCachedBindingData(ROOT_BINDING_KEY)
+    val initial = if (initData.isEmpty()) null else initData
     println("[Klaymore GlobalRoot] Async mounting $ROOT_SCRIPT_NAME from ${rootFile.absolutePath} ...")
     ScriptContainerFactory.createAndMountAsync(
         ROOT_SCRIPT_NAME,
         rootFile,
         rootTarget,
         null,
-        null
+        initial
     ) { container ->
       if (container == null) {
         System.err.println("[Klaymore GlobalRoot] FAILED to mount $ROOT_SCRIPT_NAME (compile/instantiate error, see logs)")
       } else {
         _rootContainer = container
+        PersistenceStorage.markBound(ROOT_BINDING_KEY)
         println("[Klaymore GlobalRoot] $ROOT_SCRIPT_NAME mounted successfully. All scripts can now access it via container.root or bindRoot()")
       }
     }
