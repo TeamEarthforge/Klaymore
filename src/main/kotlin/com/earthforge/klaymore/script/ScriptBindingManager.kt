@@ -25,4 +25,9 @@ object ScriptBindingManager {
   @JvmStatic
   fun findByTarget(target: Any): List<ScriptContainer> =
       containers.filter { it.getTarget() === target }
+
+  @JvmStatic
+  fun clearAll() {
+    containers.clear()
+  }
 }

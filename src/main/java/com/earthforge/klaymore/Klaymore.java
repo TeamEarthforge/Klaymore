@@ -279,5 +279,11 @@ public class Klaymore {
         } catch (Throwable t) {
             LOG.error("[Klaymore] Failed to save script bindings: " + t.getMessage(), t);
         }
+        try {
+            PersistenceStorage.cleanupOnWorldExit();
+            LOG.info("[Klaymore] All script containers released.");
+        } catch (Throwable t) {
+            LOG.error("[Klaymore] Failed to cleanup script containers: " + t.getMessage(), t);
+        }
     }
 }

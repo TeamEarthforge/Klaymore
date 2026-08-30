@@ -496,7 +496,7 @@ public final class PersistenceStorage {
 
         try {
             ScriptContainerFactory.createAndMountAsync(
-                fScriptName, scriptFile, fTarget, null,
+                fScriptName, scriptFile, fTarget, null, fData,
                 new java.util.function.Consumer<ScriptContainer>() {
                     @Override
                     public void accept(ScriptContainer container) {
@@ -507,13 +507,6 @@ public final class PersistenceStorage {
                             System.err.println("[Klaymore PersistenceStorage] async bind FAILED ["
                                 + key + "] -> " + fScriptName);
                             return;
-                        }
-
-                        try {
-                            container.importPersistentData(fData);
-                        } catch (Throwable t) {
-                            System.err.println("[Klaymore PersistenceStorage] importPersistentData failed ["
-                                + key + "]: " + t.getMessage());
                         }
 
                         boundKeys.add(key);
@@ -529,6 +522,19 @@ public final class PersistenceStorage {
     }
 
     // ---------- 内部：工具方法 ----------
+
+    public static synchronized void cleanupOnWorldExit() {
+        System.out.println("[Klaymore PersistenceStorage] Cleaning up all script containers on world exit...");
+        try {
+            ScriptContainerFactory.unmountAll();
+        } catch (Throwable t) {
+            System.err.println("[Klaymore PersistenceStorage] WARN unmountAll failed: " + t.getMessage());
+        }
+        cachedBindings = Collections.emptyMap();
+        boundKeys.clear();
+        pendingKeys.clear();
+        System.out.println("[Klaymore PersistenceStorage] Cleanup complete.");
+    }
 
     private static List<ScriptContainer> safeGetContainers() {
         try {

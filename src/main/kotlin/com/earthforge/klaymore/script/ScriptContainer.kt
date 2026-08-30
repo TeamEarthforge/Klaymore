@@ -54,7 +54,39 @@ class ScriptContainer(
 
   fun importPersistentData(data: Map<String, *>) {
     persistentDataMap.clear()
-    persistentDataMap.putAll(data)
+    for ((key, value) in data) {
+      persistentDataMap[key] = normalizePersistentValue(value)
+    }
+  }
+
+  private fun normalizePersistentValue(value: Any?): Any? {
+    return when (value) {
+      null -> null
+      is Double -> {
+        if (value.isNaN() || value.isInfinite()) value
+        else if (value == value.toLong().toDouble()) {
+          val l = value.toLong()
+          if (l >= Int.MIN_VALUE && l <= Int.MAX_VALUE) l.toInt() else l
+        } else value
+      }
+      is Float -> {
+        if (value.isNaN() || value.isInfinite()) value
+        else if (value == value.toLong().toFloat()) {
+          val l = value.toLong()
+          if (l >= Int.MIN_VALUE && l <= Int.MAX_VALUE) l.toInt() else l
+        } else value
+      }
+      is List<*> -> value.map { normalizePersistentValue(it) }
+      is Map<*, *> -> {
+        val result = mutableMapOf<String, Any?>()
+        for ((k, v) in value) {
+          result[k.toString()] = normalizePersistentValue(v)
+        }
+        result
+      }
+      is Array<*> -> value.map { normalizePersistentValue(it) }
+      else -> value
+    }
   }
 
   private fun isSafePersistentType(value: Any): Boolean {
@@ -102,6 +134,17 @@ class ScriptContainer(
       SubscriberRegistry.unregisterAll(target)
     }
     _targetRef.clear()
+
+    val oldInstance = _scriptInstance
+    if (oldInstance != null) {
+      SubscriberRegistry.unregisterInstance(oldInstance)
+    }
+    _scriptInstance = null
+    _compiledScript = null as CompiledScript
+    tempDataMap.clear()
+    persistentDataMap.clear()
+    _children.clear()
+    parent = null
   }
 
   fun replaceScriptInstance(newInstance: Any, newCompiled: CompiledScript) {

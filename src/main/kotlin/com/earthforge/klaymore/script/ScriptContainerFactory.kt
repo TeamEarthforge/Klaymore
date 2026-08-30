@@ -16,10 +16,11 @@ object ScriptContainerFactory {
       scriptName: String,
       scriptFile: File,
       target: Any,
-      parentContainer: ScriptContainer? = null
+      parentContainer: ScriptContainer? = null,
+      initialPersistentData: Map<String, *>? = null
   ): ScriptContainer? {
     val compiled = ScriptLoader.loadScript(scriptFile) ?: return null
-    return finishMount(compiled, scriptName, target, parentContainer)
+    return finishMount(compiled, scriptName, target, parentContainer, initialPersistentData)
   }
 
   /**
@@ -36,7 +37,21 @@ object ScriptContainerFactory {
       parentContainer: ScriptContainer? = null,
       callback: Consumer<ScriptContainer?>
   ) {
-    createAndMountAsync(scriptName, scriptFile, target, parentContainer) { container ->
+    createAndMountAsync(scriptName, scriptFile, target, parentContainer, null) { container ->
+      callback.accept(container)
+    }
+  }
+
+  @JvmStatic
+  fun createAndMountAsync(
+      scriptName: String,
+      scriptFile: File,
+      target: Any,
+      parentContainer: ScriptContainer?,
+      initialPersistentData: Map<String, *>?,
+      callback: Consumer<ScriptContainer?>
+  ) {
+    createAndMountAsync(scriptName, scriptFile, target, parentContainer, initialPersistentData) { container ->
       callback.accept(container)
     }
   }
@@ -48,26 +63,26 @@ object ScriptContainerFactory {
       scriptFile: File,
       target: Any,
       parentContainer: ScriptContainer? = null,
+      initialPersistentData: Map<String, *>? = null,
       callback: (ScriptContainer?) -> Unit
   ) {
-    // 第一步：异步编译（真正耗时的部分，不阻塞主线程）
     ScriptLoader.loadScriptAsync(scriptFile) { compiled ->
-      // 这里已经是主线程了（MainThreadDispatcher 保证）
       if (compiled == null) {
         callback(null)
         return@loadScriptAsync
       }
-      val container = finishMount(compiled, scriptName, target, parentContainer)
+      val container = finishMount(compiled, scriptName, target, parentContainer, initialPersistentData)
       callback(container)
     }
   }
 
-  /** 编译完成后的剩余挂载步骤（实例化 → 注入 → 订阅 → 注册管理器） */
+  /** 编译完成后的剩余挂载步骤（导入持久化数据 → 实例化 → 注入 → 订阅 → 注册管理器） */
   private fun finishMount(
       compiled: CompiledScript,
       scriptName: String,
       target: Any,
-      parentContainer: ScriptContainer?
+      parentContainer: ScriptContainer?,
+      initialPersistentData: Map<String, *>?
   ): ScriptContainer? {
     val instance = instantiateScript(compiled, scriptName) ?: return null
     val effectiveTarget = resolveEffectiveTarget(instance, target, scriptName)
@@ -80,6 +95,14 @@ object ScriptContainerFactory {
             scriptInstance = instance)
 
     parentContainer?.addChild(container)
+
+    if (initialPersistentData != null) {
+      try {
+        container.importPersistentData(initialPersistentData)
+      } catch (t: Throwable) {
+        ScriptErrorReporter.report("导入持久化数据失败: ${t.message}")
+      }
+    }
 
     ScriptInjectionUtils.injectConventions(
         instance, effectiveTarget, parentContainer?.getTarget(), container)
@@ -96,6 +119,21 @@ object ScriptContainerFactory {
     container.children.toList().forEach { unmount(it) }
     container.onUnmount()
     ScriptBindingManager.unregister(container)
+  }
+
+  @JvmStatic
+  fun unmountAll() {
+    val all = ScriptBindingManager.getContainers().toList()
+    for (container in all) {
+      try {
+        container.parent?.removeChild(container)
+        container.children.toList().forEach { unmount(it) }
+        container.onUnmount()
+      } catch (t: Throwable) {
+        // 忽略单个容器的清理错误，继续清理其他
+      }
+    }
+    ScriptBindingManager.clearAll()
   }
 
   private fun resolveEffectiveTarget(
