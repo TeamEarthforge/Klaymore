@@ -21,8 +21,8 @@ import net.minecraft.launchwrapper.Launch
  * 每次游戏重启，内存中的 compileCache 都会丢失，导致脚本需要重新编译（Kotlin 编译器 冷启动 + 全量编译一个脚本通常几百 ms ~ 数秒）。本模块把编译后的 .class
  * 字节码落盘， 下次启动时只要脚本文件的 lastModified 没变，就直接从磁盘读回字节码、defineClass， 跳过编译，挂载耗时降到 <1ms。
  *
- * 缓存目录：<mcRoot>/.klaymore-cache/script-class-cache/<md5(脚本绝对路径)>/ ├─ meta.json # 记录
- * scriptPath / lastModified / mainClassName / classNames ├─ <MainClass>.class ├─ <MainClass$Inner>.class └─ ...
+ * 缓存目录：<mcRoot>/.klaymore-cache/script-class-cache/<md5(脚本绝对路径)>/ ├─ meta.json # 记录 scriptPath /
+ * lastModified / mainClassName / classNames ├─ <MainClass>.class ├─ <MainClass$Inner>.class └─ ...
  *
  * 关键实现点：
  * - CompiledScript 是 kotlin scripting 的接口，只有 getClass() 会被上层用到 （见

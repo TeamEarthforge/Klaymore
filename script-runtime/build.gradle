@@ -25,55 +25,38 @@ dependencies {
     implementation "org.jetbrains.kotlinx:kotlinx-coroutines-core:1.8.1"
 }
 
-def shadowJarTask = tasks.named('shadowJar')
+// ================================================================
+// 公共 shadow 配置（排除 Java 9+ 字节码等 Forge 1.7.10 不兼容的内容）
+// ================================================================
+def commonShadowConfig = {
+    zip64 = true
+    mergeServiceFiles()
+    exclude 'META-INF/versions/**'
+    exclude 'module-info.class'
+    exclude 'META-INF/services/java.lang.invoke.MethodHandles$Lookup'
+}
 
-shadowJarTask.configure {
+// ================================================================
+// 运行时 JAR（玩家版必需）：stdlib + 脚本 API + 协程
+// 不含 Kotlin 编译器，体积约 6-8MB
+// ================================================================
+def shadowJarTask = tasks.named('shadowJar')
+shadowJarTask.configure commonShadowConfig >> {
     archiveBaseName.set('klaymore-runtime')
     archiveClassifier.set('')
     archiveVersion.set('')
 
-    zip64 = true
-    mergeServiceFiles()
+    dependencies {
+        // 排除编译器相关的 3 个库（放到 klaymore-runtime-compiler.jar）
+        exclude(dependency('org.jetbrains.kotlin:kotlin-compiler-embeddable'))
+        exclude(dependency('org.jetbrains.kotlin:kotlin-scripting-compiler-embeddable'))
+        exclude(dependency('org.jetbrains.kotlin:kotlin-scripting-jvm-host'))
+    }
 
-    // 必须保留：排除 Multi-Release JAR 的 META-INF/versions/** 目录
-    // Forge 1.7.10 用的 ASM 5.0.3 无法识别 Java 9+ 字节码，
-    // 扫描到 META-INF/versions/9 的 class 会抛 IllegalArgumentException 导致整个 JAR 被 ignore
-    exclude 'META-INF/versions/**'
-    exclude 'module-info.class'
-    // 排除 jdk unsupported / 8+ 版本的反射工厂
-    exclude 'META-INF/services/java.lang.invoke.MethodHandles$Lookup'
-
-    // ========================================================================
-    // ⭐⭐⭐ 最关键：对 kotlin / kotlinx / org.jetbrains.kotlin 这些包，
-    //              完全！不！做！ relocate！
-    // ========================================================================
-    //
-    // 为什么之前 relocate 出了无穷无尽的 bug？
-    //   1. relocate 不仅搬移 class，还会重写 class 里的字符串常量（包名）。
-    //      FirFallbackBuiltinSymbolProvider.<clinit> 里拼的 "kotlin/kotlin.kotlin_builtins"
-    //      这个字符串会被替换成各种"二次污染"的路径，和 JAR 内实际资源路径不匹配。
-    //   2. 开发环境 runClient 下 Forge 直接加载 build/classes/kotlin/main 目录，
-    //      不走 shadowJar，主模块 ScriptContainer 引用 kotlin.Any 是原始名；
-    //      但 runtime jar relocate 后编译器只认 shadow.kotlin.Any，
-    //      两套命名空间并存 → "Cannot access class 'kotlin.Any' / Missing stdlib class"。
-    //   3. builtins 找资源需要：类路径 FQN 拼的资源字符串 == JAR 内实际资源路径，
-    //      relocate 同时改 class FQN + 字符串常量 + 搬移资源，三个机制很难同步一致。
-    //
-    // Forge 1.7.10 环境根本没有其他 mod 带 Kotlin（2014 年 Kotlin 才 1.0 刚出来），
-    // 完全不存在类冲突，所以 relocate 纯属自找麻烦。全部删除，直接原名打包。
-    //
-    // 只对极少数可能和其他 mods 冲突的第三方小依赖做 relocate（但目前也没必要，都跳过）。
-
-    // ⭐ 也不要做 eachFile 资源重定位。 kotlin/kotlin.kotlin_builtins 就保持在
-    //    kotlin/kotlin.kotlin_builtins，让编译器怎么拼都找得到。
-
-    // 用纯 JDK 的文件删除操作（不调用 project.delete / buildDir / file() 等 Gradle 配置期对象）
-    // 避免 configuration cache 报"执行期访问配置期状态"错误。
     def cacheDirPath = layout.buildDirectory.dir('tmp/.cache/expanded').get().asFile.absolutePath
     def tmpJarPath = layout.buildDirectory.dir('tmp/jar').get().asFile.absolutePath
     def tmpShadowPath = layout.buildDirectory.dir('tmp/shadowJar').get().asFile.absolutePath
     doLast {
-        // 递归删除辅助（不依赖 Gradle）
         def deleteRec
         deleteRec = { File f ->
             if (!f.exists()) return
@@ -95,7 +78,7 @@ shadowJarTask.configure {
         File tmpShadow = new File(tmpShadowPath)
         if (tmpShadow.exists()) deleteRec(tmpShadow)
 
-        // 快速自检：确保 kotlin/kotlin.kotlin_builtins 在正确位置
+        // builtins 自检（kotlin.kotlin_builtins 在 stdlib 里）
         def jarFile = archiveFile.get().asFile
         def builtinOk = false
         try {
@@ -107,28 +90,77 @@ shadowJarTask.configure {
             println "[script-runtime] ⚠ builtins 自检失败: ${t.message}"
             builtinOk = false
         }
-        println "[script-runtime] ✔ builtins 位置自检 kotlin/kotlin.kotlin_builtins: ${builtinOk ? 'OK' : 'NOT FOUND!!!'}"
-        println "[script-runtime] ✔ 构建完成，大小: ${String.format('%.2f', jarFile.length()/1024/1024)} MB（未 relocate 原版）"
+        println "[script-runtime] ✔ runtime builtins 自检: ${builtinOk ? 'OK' : 'NOT FOUND!!!'}"
+        println "[script-runtime] ✔ runtime 构建完成，大小: ${String.format('%.2f', jarFile.length()/1024/1024)} MB"
     }
 }
 
-// 注意：提前在"配置期"解析目标路径为字符串，避免 doFirst/doLast 执行期闭包内
-// 直接引用 rootProject / file() 等 Gradle 对象触发 configuration cache 报错。
+// ================================================================
+// 编译器 JAR（开发版额外需要）：Kotlin 编译器 + 脚本编译器
+// 体积约 50-60MB，玩家版不需要
+// ================================================================
+// 用 Jar 任务直接打包，避免依赖 shadow 插件的 ShadowJar 类型（配置阶段无法解析）。
+task shadowJarCompiler(type: Jar) {
+    archiveBaseName.set('klaymore-runtime-compiler')
+    archiveClassifier.set('')
+    archiveVersion.set('')
+    zip64 = true
+
+    // 只打包编译器相关的 3 个库，排除运行时 jar 已提供的库
+    from {
+        def compilerLibs = [
+            'kotlin-compiler-embeddable',
+            'kotlin-scripting-compiler-embeddable',
+            'kotlin-scripting-jvm-host'
+        ]
+        configurations.runtimeClasspath.files.findAll { f ->
+            compilerLibs.any { f.name.contains(it) }
+        }.collect { zipTree(it) }
+    }
+
+    // 合并 META-INF/services（kotlin 编译器依赖服务发现）
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+
+    // 排除 Forge 1.7.10 不兼容的内容
+    exclude 'META-INF/versions/**'
+    exclude 'module-info.class'
+    exclude 'META-INF/services/java.lang.invoke.MethodHandles$Lookup'
+
+    doLast {
+        def jarFile = archiveFile.get().asFile
+        println "[script-runtime] ✔ compiler 构建完成，大小: ${String.format('%.2f', jarFile.length()/1024/1024)} MB"
+    }
+}
+
+// ================================================================
+// 复制产物到主项目 libs/
+// ================================================================
 def libsDirFile = new File(rootProject.projectDir, 'libs')
 def libsDirPath = libsDirFile.absolutePath
 def runtimeJarPath = new File(libsDirFile, 'klaymore-runtime.jar').absolutePath
+def compilerJarPath = new File(libsDirFile, 'klaymore-runtime-compiler.jar').absolutePath
 
 task copyRuntime(type: Copy, dependsOn: shadowJarTask) {
     from(shadowJarTask.flatMap { it.archiveFile })
     into(libsDirFile)
     doLast {
         File targetFile = new File(runtimeJarPath)
-        println "[script-runtime] 运行库已复制到: ${targetFile.absolutePath}"
-        println "[script-runtime] 大小: ${String.format('%.2f', targetFile.length()/1024/1024)} MB"
+        println "[script-runtime] runtime 已复制到: ${targetFile.absolutePath}"
+        println "[script-runtime] runtime 大小: ${String.format('%.2f', targetFile.length()/1024/1024)} MB"
     }
 }
 
-build.dependsOn copyRuntime
+task copyCompilerRuntime(type: Copy, dependsOn: 'shadowJarCompiler') {
+    from(tasks.named('shadowJarCompiler').flatMap { it.archiveFile })
+    into(libsDirFile)
+    doLast {
+        File targetFile = new File(compilerJarPath)
+        println "[script-runtime] compiler runtime 已复制到: ${targetFile.absolutePath}"
+        println "[script-runtime] compiler runtime 大小: ${String.format('%.2f', targetFile.length()/1024/1024)} MB"
+    }
+}
+
+build.dependsOn copyRuntime, copyCompilerRuntime
 
 artifacts {
     shadow shadowJarTask

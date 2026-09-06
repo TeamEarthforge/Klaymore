@@ -44,27 +44,39 @@ ext.kotlin_version = '2.1.10'
 //   才需要重新执行一次：./gradlew :script-runtime:build
 
 def runtimeJar = file('libs/klaymore-runtime.jar')
+def compilerRuntimeJar = file('libs/klaymore-runtime-compiler.jar')
+def compilerJar = file('libs/klaymore-compiler.jar')
 if (!runtimeJar.exists()) {
     // 首次构建，如果 libs/klaymore-runtime.jar 不存在，提示用户先构建 runtime
     logger.lifecycle "[Klaymore] ⚠️  未找到 libs/klaymore-runtime.jar，请先执行：./gradlew :script-runtime:build"
 }
 
 dependencies {
-    // ---- 1. 编译期符号：原 kotlin-stdlib 等（用于编译期解析 kotlin 语法糖、标准库 API）----
-    // 只在编译时可见，不进入主 mod 任何打包产物
-    compileOnly "org.jetbrains.kotlin:kotlin-stdlib:$kotlin_version"
-    compileOnly "org.jetbrains.kotlin:kotlin-script-runtime:$kotlin_version"
-    compileOnly "org.jetbrains.kotlin:kotlin-scripting-common:$kotlin_version"
-    compileOnly "org.jetbrains.kotlin:kotlin-scripting-jvm:$kotlin_version"
-    compileOnly "org.jetbrains.kotlin:kotlin-scripting-jvm-host:$kotlin_version"
-    compileOnly "org.jetbrains.kotlin:kotlin-scripting-compiler-embeddable:$kotlin_version"
-    compileOnly "org.jetbrains.kotlin:kotlin-compiler-embeddable:$kotlin_version"
-    compileOnly "org.jetbrains.kotlinx:kotlinx-coroutines-core:1.8.1"
+    // ---- 1. 编译期符号：Kotlin 运行时 + 脚本 API（主模块只需要这些，不需要编译器）----
+    // 编译器相关依赖（kotlin-compiler-embeddable 等）放在 klaymore-compiler 子模块里，
+    // 主模块通过 ScriptCompilerBridge 接口间接调用，编译期不依赖编译器。
+    //
+    // 注意：用 implementation 而非 compileOnly，因为 RFG 的 compileOnly 可能不进入编译 classpath。
+    // 运行时这些类由 klaymore-runtime.jar 提供，主模块 shadowJar 已 exclude 掉 kotlin/** 等包，
+    // 所以不会重复打包。
+    implementation "org.jetbrains.kotlin:kotlin-stdlib:$kotlin_version"
+    implementation "org.jetbrains.kotlin:kotlin-script-runtime:$kotlin_version"
+    implementation "org.jetbrains.kotlin:kotlin-scripting-common:$kotlin_version"
+    implementation "org.jetbrains.kotlin:kotlin-scripting-jvm:$kotlin_version"
+    implementation "org.jetbrains.kotlinx:kotlinx-coroutines-core:1.8.1"
 
-    // ---- 2. 开发运行期（runClient/runServer）加载 klaymore-runtime.jar ----
-    //   让本地跑游戏时，mod 类加载器能找到 relocate 过的 com.earthforge.klaymore.shadow.* 类
-    //   用 runtimeOnlyNonPublishable：只用于本地 runClient/runServer，绝不进入主 mod JAR，也不发布成 maven 依赖
+    // ---- 2. 开发运行期（runClient/runServer）加载运行时 jar ----
+    //   klaymore-runtime.jar：Kotlin 运行时（玩家版必需）
+    //   klaymore-runtime-compiler.jar：Kotlin 编译器（开发版额外需要）
+    //   klaymore-compiler.jar：脚本编译实现（开发版额外需要）
+    //   用 runtimeOnlyNonPublishable：只用于本地 runClient/runServer，绝不进入主 mod JAR
     if (runtimeJar.exists()) {
         runtimeOnlyNonPublishable files(runtimeJar.path)
+    }
+    if (compilerRuntimeJar.exists()) {
+        runtimeOnlyNonPublishable files(compilerRuntimeJar.path)
+    }
+    if (compilerJar.exists()) {
+        runtimeOnlyNonPublishable files(compilerJar.path)
     }
 }

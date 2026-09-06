@@ -82,7 +82,11 @@ afterEvaluate {
   // 修复 Gradle 9 严格模式下 reobfJar 与 script-runtime:copyRuntime 的隐式依赖告警
   tasks
       .matching { it.name == "reobfJar" }
-      .configureEach { dependsOn(":script-runtime:copyRuntime") }
+      .configureEach {
+        dependsOn(":script-runtime:copyRuntime")
+        dependsOn(":script-runtime:copyCompilerRuntime")
+        dependsOn(":klaymore-compiler:copyCompiler")
+      }
 }
 
 afterEvaluate {

@@ -1,0 +1,50 @@
+plugins {
+  id("org.jetbrains.kotlin.jvm")
+}
+
+repositories {
+  mavenCentral()
+  maven { url = uri("https://nexus.gtnewhorizons.com/repository/public/") }
+}
+
+ext.kotlin_version = '2.1.10'
+
+version = "0.0.2"
+
+dependencies {
+  // 依赖主项目，获取 ScriptCompilerBridge 接口
+  compileOnly(project(":"))
+
+  // Kotlin 运行时 + 脚本 API（编译期符号，运行时由 klaymore-runtime.jar 提供）
+  compileOnly "org.jetbrains.kotlin:kotlin-stdlib:$kotlin_version"
+  compileOnly "org.jetbrains.kotlin:kotlin-script-runtime:$kotlin_version"
+  compileOnly "org.jetbrains.kotlin:kotlin-scripting-common:$kotlin_version"
+  compileOnly "org.jetbrains.kotlin:kotlin-scripting-jvm:$kotlin_version"
+
+  // Kotlin 编译器（运行时由 klaymore-runtime-compiler.jar 提供）
+  compileOnly "org.jetbrains.kotlin:kotlin-scripting-jvm-host:$kotlin_version"
+  compileOnly "org.jetbrains.kotlin:kotlin-scripting-compiler-embeddable:$kotlin_version"
+  compileOnly "org.jetbrains.kotlin:kotlin-compiler-embeddable:$kotlin_version"
+  compileOnly "org.jetbrains.kotlinx:kotlinx-coroutines-core:1.8.1"
+}
+
+kotlin {
+  jvmToolchain(8)
+}
+
+// 打包 klaymore-compiler.jar（只含自身 class，不含依赖）
+tasks.named("jar") {
+  archiveBaseName.set("klaymore-compiler")
+}
+
+// 复制产物到主项目 libs/
+tasks.register("copyCompiler", Copy) {
+  dependsOn("jar")
+  from(tasks.named("jar").flatMap { it.archiveFile })
+  into("${rootProject.projectDir}/libs")
+  rename { "klaymore-compiler.jar" }
+}
+
+tasks.named("build") {
+  dependsOn("copyCompiler")
+}

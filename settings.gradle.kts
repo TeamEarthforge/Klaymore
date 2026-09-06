@@ -22,3 +22,5 @@ plugins {
 }
 
 include(":script-runtime")
+
+include(":klaymore-compiler")
