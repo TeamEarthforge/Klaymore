@@ -53,6 +53,9 @@ shadowJarTask.configure commonShadowConfig >> {
         exclude(dependency('org.jetbrains.kotlin:kotlin-scripting-jvm-host'))
     }
 
+    // 运行时 jar 不包含 SRG minecraft dummy（只在 compiler jar 里）
+    exclude 'klaymore/minecraft-1.7.10-srg.jar'
+
     def cacheDirPath = layout.buildDirectory.dir('tmp/.cache/expanded').get().asFile.absolutePath
     def tmpJarPath = layout.buildDirectory.dir('tmp/jar').get().asFile.absolutePath
     def tmpShadowPath = layout.buildDirectory.dir('tmp/shadowJar').get().asFile.absolutePath
@@ -116,6 +119,11 @@ task shadowJarCompiler(type: Jar) {
         configurations.runtimeClasspath.files.findAll { f ->
             compilerLibs.any { f.name.contains(it) }
         }.collect { zipTree(it) }
+    }
+
+    // 打包 SRG 命名的 Minecraft dummy jar（编译期 classpath 用，不参与运行时加载）
+    from('src/main/resources') {
+        include 'klaymore/minecraft-1.7.10-srg.jar'
     }
 
     // 合并 META-INF/services（kotlin 编译器依赖服务发现）

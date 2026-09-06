@@ -215,7 +215,7 @@ class ScriptContainer(
 
     ScriptInjectionUtils.injectConventions(newInstance, target, parentTarget, this)
     if (target != null) {
-      ScriptInjectionUtils.registerSubscribers(newInstance, target)
+      ScriptInjectionUtils.registerSubscribers(newInstance, target, side)
     }
   }
 

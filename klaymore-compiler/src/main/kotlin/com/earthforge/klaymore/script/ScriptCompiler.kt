@@ -9,9 +9,7 @@ import java.util.concurrent.Executors
 import kotlin.script.experimental.api.CompiledScript
 import kotlin.script.experimental.api.ResultWithDiagnostics
 import kotlin.script.experimental.api.ScriptCompilationConfiguration
-import kotlin.script.experimental.host.FileScriptSource
-import kotlin.script.experimental.jvm.dependenciesFromCurrentContext
-import kotlin.script.experimental.jvm.jvm
+import kotlin.script.experimental.host.FileScriptSource import kotlin.script.experimental.jvm.jvm
 import kotlin.script.experimental.jvm.jvmTarget
 import kotlin.script.experimental.jvm.updateClasspath
 import kotlin.script.experimental.jvmhost.JvmScriptCompiler
@@ -32,6 +30,52 @@ class ScriptCompiler : ScriptCompilerBridge {
       Executors.newSingleThreadExecutor { r ->
         Thread(r, "Klaymore-Compiler").apply { isDaemon = true }
       }
+
+  @Volatile private var srgMinecraftJar: File? = null
+
+  private fun srgMinecraftJar(): File {
+    srgMinecraftJar?.let {
+      if (it.exists()) return it
+    }
+    val cl = javaClass.classLoader
+    val resource = cl.getResource("klaymore/minecraft-1.7.10-srg.jar")
+        ?: throw IllegalStateException("SRG minecraft jar not found in classpath resources")
+    val tmp = File.createTempFile("klaymore-mc-srg", ".jar")
+    tmp.deleteOnExit()
+    resource.openStream().use { input ->
+      tmp.outputStream().use { output -> input.copyTo(output) }
+    }
+    println("[Klaymore] Extracted SRG minecraft dummy jar to: ${tmp.absolutePath}")
+    srgMinecraftJar = tmp
+    return tmp
+  }
+
+  private fun isMcOrForgeJar(file: File): Boolean {
+    if (!file.exists() || !file.isFile || file.extension != "jar") return false
+    return try {
+      val zip = java.util.zip.ZipFile(file)
+      var hasNotchClass = false
+      var hasNetMinecraft = false
+      var hasForge = false
+      zip.use {
+        for (entry in it.entries().asSequence()) {
+          val name = entry.name
+          if (name.endsWith(".class")) {
+            if (name.indexOf('/') < 0) hasNotchClass = true
+            if (name.startsWith("net/minecraft/")) hasNetMinecraft = true
+            if (name.startsWith("cpw/mods/fml/") || name.startsWith("net/minecraftforge/")) hasForge = true
+          }
+          if ((hasNotchClass && hasNetMinecraft) || hasForge) break
+        }
+      }
+      // 原版 Minecraft jar：同时含 notch 顶级类和 net/minecraft 类
+      // Forge/FML jar：含 cpw.mods.fml 或 net.minecraftforge 类
+      // 这两类 jar 里的 minecraft 引用都是 notch 命名，必须用 SRG dummy 替换
+      (hasNotchClass && hasNetMinecraft) || hasForge
+    } catch (_: Throwable) {
+      false
+    }
+  }
 
   /** 通过反射获取 Forge 的 Launch.classLoader，避免模块直接依赖 Forge。 */
   private fun launchClassLoader(): ClassLoader {
@@ -108,17 +152,38 @@ class ScriptCompiler : ScriptCompilerBridge {
       val compilerInstance = getOrCreateCompiler()
 
       // 手动提取所有类路径（包含 Forge/Minecraft 所有 JAR）
-      val classpathFiles = extractClasspathFromLoader(launchCl)
-      println("=== Extracted ${classpathFiles.size} classpath entries from Launch.classLoader ===")
+      val launchClasspath = extractClasspathFromLoader(launchCl)
+
+      // 从加载编译器的 classloader 提取 Kotlin 运行时/脚本 API/编译器依赖
+      // （klaymore-runtime-compiler.jar 内含 kotlin-compiler-embeddable 等）
+      val compilerClasspath = extractClasspathFromLoader(javaClass.classLoader)
+
+      // ⭐ 关键：把所有原版 minecraft jar 替换成 SRG 命名的 dummy jar。
+      //   注意不能用 dependenciesFromCurrentContext(wholeClasspath=true)，
+      //   因为那会把 LaunchClassLoader 里的 notch 命名 minecraft 类也拉进来，
+      //   导致和 SRG 命名的类冲突、方法解析失败。
+      val srgJar = srgMinecraftJar()
+      val merged = LinkedHashSet<File>()
+      val replaced = ArrayList<File>()
+      for (f in compilerClasspath + launchClasspath) {
+        if (isMcOrForgeJar(f)) {
+          replaced.add(f)
+        } else {
+          merged.add(f.absoluteFile)
+        }
+      }
+      merged.add(srgJar)
+      val classpathFiles = merged.toList()
+      println("=== Replaced ${replaced.size} minecraft jar(s) with SRG dummy ===")
+      replaced.distinctBy { it.name }.forEach { println("  - removed: ${it.name}") }
+      println("  + added:   ${srgJar.name}")
+      println("=== Final classpath has ${classpathFiles.size} entries ===")
       classpathFiles.take(10).forEach { println("  - ${it.absolutePath}") }
 
-      // 构建编译配置：同时使用自动依赖和手动追加
+      // 构建编译配置：只用手动构建的 classpath（全 SRG 命名 + Kotlin 依赖）
       val config = ScriptCompilationConfiguration {
         jvm {
           jvmTarget("1.8")
-          // 1. 自动从当前上下文加载器获取依赖（包含 Kotlin 运行时、脚本 API 等）
-          dependenciesFromCurrentContext(wholeClasspath = true)
-          // 2. 手动追加我们提取的所有类路径（确保 Forge/Minecraft 类可见）
           updateClasspath(classpathFiles)
         }
       }
@@ -252,108 +317,8 @@ class ScriptCompiler : ScriptCompilerBridge {
       }
     }
 
-    // ⭐⭐⭐ 4. 额外追加：Forge 开发环境 classes 输出目录
-    // （Forge 1.7.10 的 LaunchClassLoader 在开发模式下不把 build/classes/java/* 目录放入 sources/getURLs，
-    //  但运行时能通过 transformer wrapper 找到。 kotlin 编译器直接查 classpath，所以找不到）
-    // 4a. 首先根据已识别的 recompiled_minecraft-1.7.10.jar 反推出各项目根目录
-    val candidateProjectRoots = LinkedHashSet<File>()
-    for (f in files) {
-      val name = f.name
-      if (name == "recompiled_minecraft-1.7.10.jar" || name == "mclauncher-1.7.10.jar") {
-        // F:\MCRPG\CustomNpc-Plus-Klaymore\build\rfg\recompiled_minecraft-1.7.10.jar
-        // 向上 2 级 → 项目根
-        f.parentFile?.parentFile?.parentFile?.let { candidateProjectRoots.add(it) }
-      }
-      if (f.path.endsWith("build/libs/klaymore-runtime.jar")) {
-        f.parentFile?.parentFile?.parentFile?.let { candidateProjectRoots.add(it) }
-      }
-    }
-    // 4b. 兜底：把当前 System.getProperty("user.dir") 的父级目录也作为候选（多项目 workspace 常见结构）
-    try {
-      val cwd = File(System.getProperty("user.dir"))
-      candidateProjectRoots.add(cwd)
-      cwd.parentFile?.let { candidateProjectRoots.add(it) }
-    } catch (_: Throwable) {
-      /* ignore */
-    }
-
-    fun addBuildClassesDirs(projectDir: File) {
-      if (!projectDir.isDirectory) return
-      val buildClassesJava = File(projectDir, "build/classes/java")
-      if (buildClassesJava.isDirectory) {
-        // 通常是 main / api / patchedMc / injectedTags / mcLauncher 等 source-set 输出
-        buildClassesJava.listFiles()?.forEach { sourceSetDir ->
-          if (sourceSetDir.isDirectory) {
-            addFile(sourceSetDir)
-          }
-        }
-      }
-      // 有些项目直接把 classes 输出到 build/classes
-      val buildClasses = File(projectDir, "build/classes")
-      if (buildClasses.isDirectory) addFile(buildClasses)
-      // kotlin 独立输出目录
-      val buildClassesKotlin = File(projectDir, "build/classes/kotlin")
-      if (buildClassesKotlin.isDirectory) {
-        buildClassesKotlin.listFiles()?.forEach { ss -> if (ss.isDirectory) addFile(ss) }
-      }
-      // 项目 libs/ 目录（比如 Klaymore/libs/klaymore-runtime.jar）
-      val libsDir = File(projectDir, "libs")
-      if (libsDir.isDirectory) {
-        libsDir.listFiles()?.forEach { jar ->
-          if (jar.isFile && jar.extension.equals("jar", ignoreCase = true)) {
-            addFile(jar)
-          }
-        }
-      }
-      // run/mods 目录（开发模式下经常放其他依赖 mod 的 jar）
-      val runModsDirs =
-          listOf(
-              File(projectDir, "run/client/mods"),
-              File(projectDir, "run/server/mods"),
-              File(projectDir, "run/mods"))
-      for (modsDir in runModsDirs) {
-        if (modsDir.isDirectory) {
-          modsDir.listFiles()?.forEach { jar ->
-            if (jar.isFile && jar.extension.equals("jar", ignoreCase = true)) {
-              addFile(jar)
-            }
-          }
-        }
-      }
-    }
-
-    for (root in candidateProjectRoots) {
-      addBuildClassesDirs(root)
-      // 还会扫描根目录下的所有子目录（识别 F:\MCRPG\Klaymore + F:\MCRPG\CustomNpc-Plus-Klaymore 这种兄弟项目）
-      root.listFiles()?.forEach { sibling ->
-        if (sibling.isDirectory) {
-          addBuildClassesDirs(sibling)
-        }
-      }
-    }
-
-    // 4c. 打印统计 + CustomNPCs 类的命中情况（开发调试用）
-    var noppesClassesDir: File? = null
-    for (f in files) {
-      if (f.isDirectory && File(f, "noppes/npcs/entity/EntityNPCInterface.class").exists()) {
-        noppesClassesDir = f
-        break
-      }
-    }
-    println(
-        "=== extractClasspathFromLoader: total ${files.size} entries, " +
-            "CustomNPCs-found=${noppesClassesDir != null} ===")
-    if (noppesClassesDir != null) {
-      println("    + CustomNPCs classes dir: ${noppesClassesDir.absolutePath}")
-    } else {
-      println("    ⚠ CustomNPCs classes dir NOT FOUND in compile classpath!")
-    }
-    // 额外确认关键 API class 是否存在
-    val hasICustomNpc =
-        files.any { f -> File(f, "noppes/npcs/api/entity/ICustomNpc.class").exists() }
-    val hasEntityCustomNpc =
-        files.any { f -> File(f, "noppes/npcs/entity/EntityCustomNpc.class").exists() }
-    println("    + ICustomNpc.class: $hasICustomNpc, EntityCustomNpc.class: $hasEntityCustomNpc")
+    // 4. 打印统计
+    println("=== extractClasspathFromLoader: total ${files.size} entries ===")
 
     return files.toList()
   }

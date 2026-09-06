@@ -18,7 +18,7 @@ object ScriptContainerFactory {
       target: Any,
       parentContainer: ScriptContainer? = null,
       initialPersistentData: Map<String, *>? = null,
-      side: ScriptSide = ScriptSide.fromPath(scriptFile)
+      side: ScriptSide = ScriptSide.SERVER
   ): ScriptContainer? {
     val compiled = ScriptLoader.loadScript(scriptFile) ?: return null
     return finishMount(compiled, scriptName, target, parentContainer, initialPersistentData, side)
@@ -66,7 +66,7 @@ object ScriptContainerFactory {
       target: Any,
       parentContainer: ScriptContainer? = null,
       initialPersistentData: Map<String, *>? = null,
-      side: ScriptSide = ScriptSide.fromPath(scriptFile),
+      side: ScriptSide = ScriptSide.SERVER,
       callback: (ScriptContainer?) -> Unit
   ) {
     ScriptLoader.loadScriptAsync(scriptFile) { compiled ->
