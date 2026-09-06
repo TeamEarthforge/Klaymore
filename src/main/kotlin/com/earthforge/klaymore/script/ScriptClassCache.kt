@@ -224,10 +224,10 @@ object ScriptClassCache {
     collectClassByteMapsInto(compiled, allBytes)
     mainClass.classLoader?.let { collectClassByteMapsInto(it, allBytes) }
 
-    // 资源路径形式的 key 可能带 ".class" 后缀，统一去掉得到二进制类名
+    // 资源路径形式的 key 可能带 ".class" 后缀、且用 '/' 分隔包名，统一归一化为点分包名
     val normalized = LinkedHashMap<String, ByteArray>()
     for ((name, bytes) in allBytes) {
-      val className = name.removeSuffix(".class")
+      val className = name.removeSuffix(".class").replace('/', '.')
       normalized[className] = bytes
     }
 
@@ -250,6 +250,15 @@ object ScriptClassCache {
     // 仍然拿不到主类 → 完全回退到资源扫描（BFS + 常量池闭包）
     if (mainName !in scriptClasses) {
       return collectViaResources(mainClass)
+    }
+
+    // ⭐ 关键：字节码 Map 里通常只有主类，嵌套类（object/class/lambda 生成的 主类$Xxx）
+    // 不在 Map 中，会导致缓存落盘时丢失嵌套类。下次从缓存加载后，脚本里的 object 单例
+    // 根本不存在，其 <clinit>/init 块不会执行、@Subscribe 也不会注册。
+    // 这里用常量池闭包扫描把所有嵌套类补齐（已存在的不覆盖）。
+    val viaResources = collectViaResources(mainClass)
+    for ((name, bytes) in viaResources) {
+      scriptClasses.putIfAbsent(name, bytes)
     }
 
     return scriptClasses
