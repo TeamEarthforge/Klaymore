@@ -117,6 +117,29 @@ object ScriptLoader {
     lastModifiedCache.clear()
   }
 
+  /**
+   * 根据脚本名称（如 "soldier.kts"）从缓存中获取已编译蓝图。
+   *
+   * 用于 [ScriptContainerFactory.spawnChild]：同一份脚本编译产物可被多个实例复用。 匹配策略：优先精确匹配绝对路径的文件名；其次匹配去掉扩展名的名称。
+   */
+  @JvmStatic
+  fun getCachedCompiledScript(scriptName: String): CompiledScript? {
+    // 精确匹配文件名
+    compileCache.entries
+        .firstOrNull { File(it.key).name == scriptName }
+        ?.let {
+          return it.value
+        }
+    // 匹配去掉扩展名的名称
+    val baseName = scriptName.substringBeforeLast('.')
+    compileCache.entries
+        .firstOrNull { File(it.key).name.substringBeforeLast('.') == baseName }
+        ?.let {
+          return it.value
+        }
+    return null
+  }
+
   @JvmStatic
   fun invalidateCache(scriptFile: File) {
     val path = scriptFile.absolutePath

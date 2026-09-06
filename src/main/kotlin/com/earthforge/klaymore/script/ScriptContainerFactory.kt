@@ -105,6 +105,8 @@ object ScriptContainerFactory {
     if (initialPersistentData != null) {
       try {
         container.importPersistentData(initialPersistentData)
+        // 导入后从持久化数据中提取路径（klaymore.path）并归一化
+        container.syncPathFromPersistentData()
       } catch (t: Throwable) {
         ScriptErrorReporter.report("导入持久化数据失败: ${t.message}")
       }
@@ -113,6 +115,12 @@ object ScriptContainerFactory {
     ScriptInjectionUtils.injectConventions(
         instance, effectiveTarget, parentContainer?.getTarget(), container)
     ScriptInjectionUtils.registerSubscribers(instance, effectiveTarget, side)
+
+    // 注册到 ContainerIndex（Key -> Container），实现 O(1) 查找
+    val key = PersistenceManager.generateKey(effectiveTarget)
+    if (!key.isNullOrEmpty()) {
+      ContainerIndex.register(key, container)
+    }
 
     ScriptBindingManager.register(container)
 
@@ -140,6 +148,51 @@ object ScriptContainerFactory {
       }
     }
     ScriptBindingManager.clearAll()
+    ContainerIndex.clear()
+    FactBase.clear()
+  }
+
+  /**
+   * 蓝图与实例分离：基于已编译脚本（蓝图）生成新的运行时实例。
+   *
+   * 设计目标（见 Klaymore 方案 §3.3 / §5.3）：
+   * - 同一份脚本源码编译后只保留一份 CompiledScript（蓝图）。
+   * - 运行时根据需要 spawn 多个实例，每个实例可绑定不同 target / path。
+   * - 例如 100 个士兵共用 soldier.kts 一份字节码，每个实例有自己的 path 与 target。
+   *
+   * @param parentContainer 父容器（用于建立父子关系、推导路径前缀）
+   * @param scriptName 脚本名称（用于在 ScriptLoader 缓存中查找已编译蓝图）
+   * @param target 新实例的绑定目标
+   * @param path 新实例的逻辑路径（如 "/game/red/soldier_3"）
+   * @param extraPersistentData 额外的持久化数据（会与 klaymore.path 合并）
+   * @param side 端侧
+   * @return 新容器；若蓝图未编译或实例化失败则返回 null
+   */
+  @JvmStatic
+  fun spawnChild(
+      parentContainer: ScriptContainer,
+      scriptName: String,
+      target: Any,
+      path: String,
+      extraPersistentData: Map<String, *>? = null,
+      side: ScriptSide = ScriptSide.SERVER
+  ): ScriptContainer? {
+    // 1. 从蓝图缓存中获取已编译脚本（不重新编译）
+    val compiled = ScriptLoader.getCachedCompiledScript(scriptName)
+    if (compiled == null) {
+      ScriptErrorReporter.report("spawnChild 失败：脚本 '$scriptName' 未预编译（蓝图不存在）")
+      return null
+    }
+
+    // 2. 组装 initialPersistentData，包含路径
+    val persistentData = mutableMapOf<String, Any?>()
+    if (extraPersistentData != null) {
+      persistentData.putAll(extraPersistentData)
+    }
+    persistentData[PATH_KEY] = path
+
+    // 3. 复用 finishMount 完成实例化、注入、注册
+    return finishMount(compiled, scriptName, target, parentContainer, persistentData, side)
   }
 
   private fun resolveEffectiveTarget(
@@ -149,14 +202,21 @@ object ScriptContainerFactory {
   ): Any {
     if (providedTarget is Dummy) return providedTarget
 
-    val wantsDummy =
+    // 约定方法方式：bindTarget(Dummy)
+    val wantsDummyByMethod =
         scriptInstance::class.java.declaredMethods.any { method ->
           method.name == "bindTarget" &&
               method.parameterCount == 1 &&
               method.parameterTypes[0] == Dummy::class.java
         }
 
-    if (wantsDummy && providedTarget !is Dummy) {
+    // 字段注入方式：lateinit var target: Dummy
+    val wantsDummyByField =
+        scriptInstance::class.java.declaredFields.any { field ->
+          field.name == "target" && field.type == Dummy::class.java
+        }
+
+    if ((wantsDummyByMethod || wantsDummyByField) && providedTarget !is Dummy) {
       return Dummy("global_${scriptName.substringBeforeLast('.')}")
     }
 
@@ -194,11 +254,19 @@ object ScriptContainerFactory {
   }
 
   private val CONVENTION_METHOD_NAMES = setOf("bindTarget", "bindContainer", "bindParent")
+  private val CONVENTION_FIELD_NAMES =
+      setOf("target", "container", "selfContainer", "net", "parent")
 
   private fun looksLikeScriptImpl(obj: Any): Boolean {
     val methods = obj.javaClass.declaredMethods
     // 有任意约定方法 → 是脚本
     if (methods.any { it.name in CONVENTION_METHOD_NAMES }) return true
+    // 有约定字段（lateinit var target / container / net 等）→ 是脚本
+    val fields = obj.javaClass.declaredFields
+    if (fields.any {
+      it.name in CONVENTION_FIELD_NAMES && !java.lang.reflect.Modifier.isStatic(it.modifiers)
+    })
+        return true
     // 有 @Subscribe 方法 → 是脚本
     return try {
       val subscribeAnno =
