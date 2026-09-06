@@ -39,6 +39,7 @@ layout.json
 
 # 项目排除路径
 /script-runtime/build/
+/klaymore-compiler/build/
 
 # 脚本项目生成器（不纳入 Klaymore 主项目 git）
 /script-project-generator/

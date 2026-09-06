@@ -15,7 +15,7 @@ dependencies {
   // 依赖主项目，获取 ScriptCompilerBridge 接口
   compileOnly(project(":"))
 
-  // Kotlin 运行时 + 脚本 API（编译期符号，运行时由 klaymore-runtime.jar 提供）
+  // Kotlin 运行时 + 脚本 API（编译期符号，运行时由 klaymore-runtime.jar 提供）g
   compileOnly "org.jetbrains.kotlin:kotlin-stdlib:$kotlin_version"
   compileOnly "org.jetbrains.kotlin:kotlin-script-runtime:$kotlin_version"
   compileOnly "org.jetbrains.kotlin:kotlin-scripting-common:$kotlin_version"
