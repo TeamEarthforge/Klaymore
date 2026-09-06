@@ -48,9 +48,9 @@ public class Klaymore {
      * 派发任意事件给 Klaymore 脚本层（自动查找提取器 + 定向派发）。
      * <p>
      * 用法（其他 Mod 里）：
-     * 
+     *
      * <pre>
-     * 
+     *
      * {
      *     &#64;code
      *     MyCustomEvent event = new MyCustomEvent(player, data);
@@ -90,9 +90,9 @@ public class Klaymore {
      * 派发事件给 Klaymore 脚本层，并显式指定绑定目标（跳过提取器查找）。
      * <p>
      * 用法（其他 Mod 里）：
-     * 
+     *
      * <pre>
-     * 
+     *
      * {
      *     &#64;code
      *     MyEvent evt = new MyEvent(player, someData);
@@ -121,7 +121,7 @@ public class Klaymore {
      * 注册事件目标提取器（给其他 Mod 的自定义事件类型用）。
      * <p>
      * 用法（其他 Mod 里，推荐在 preInit 阶段调用）：
-     * 
+     *
      * <pre>
      * {@code
      *   Klaymore.registerTargetExtractor(MyQuestEvent.class, e -> e.player);
@@ -297,11 +297,11 @@ public class Klaymore {
         // 阶段 ②：挂载 Root，此时 getCachedBindingData("dummy:root") 能读到 bootCount
         // → 直接作为 initialPersistentData 传给 Root 容器（init 立刻能用）
         // → 挂载后调用 markBound("dummy:root")，把 key 填进 boundKeys 占坑
-        LOG.info("[Klaymore] Mounting global Root.kts (booting with cached persistent data)...");
+        LOG.info("[Klaymore] Mounting global Root.kt (booting with cached persistent data)...");
         try {
             GlobalRoot.mountIfPresent();
         } catch (Throwable t) {
-            LOG.error("[Klaymore] Failed to mount Root.kts: " + t.getMessage(), t);
+            LOG.error("[Klaymore] Failed to mount Root.kt: " + t.getMessage(), t);
         }
         // 阶段 ③：真正处理实体绑定（玩家/NPC/方块脚本）
         // dummy:root 已在 boundKeys 里 → tryBindEntry 第一行就 return 跳过
@@ -324,11 +324,11 @@ public class Klaymore {
         } catch (Throwable t) {
             LOG.error("[Klaymore] Failed to save script bindings: " + t.getMessage(), t);
         }
-        LOG.info("[Klaymore] Unmounting global Root.kts...");
+        LOG.info("[Klaymore] Unmounting global Root.kt...");
         try {
             GlobalRoot.unmountAll();
         } catch (Throwable t) {
-            LOG.error("[Klaymore] Failed to unmount Root.kts: " + t.getMessage(), t);
+            LOG.error("[Klaymore] Failed to unmount Root.kt: " + t.getMessage(), t);
         }
         try {
             PersistenceStorage.cleanupOnWorldExit();

@@ -7,7 +7,7 @@ tooltip.klaymore_wand.line2=Klaymore 脚本绑定工具
 
 gui.klaymore.title=绑定脚本到 NPC
 gui.klaymore.target=目标: %s
-gui.klaymore.script=脚本名（.kts）：
+gui.klaymore.script=脚本名（.kt）：
 gui.klaymore.bind=绑定
 gui.klaymore.unbind=全部解绑
 gui.cancel=取消
@@ -19,4 +19,4 @@ gui.klaymore.unbind.tooltip=移除此 NPC 上挂载的所有 Klaymore 脚本
 gui.klaymore.dir=目录: %s
 gui.klaymore.refresh=刷新列表
 gui.klaymore.refreshed=脚本列表已刷新
-gui.klaymore.refresh.tooltip=重新扫描 klaymore 文件夹中的 .kts 文件
+gui.klaymore.refresh.tooltip=重新扫描 klaymore 文件夹中的 .kt 文件

@@ -140,7 +140,7 @@ public class GuiWandScriptBind extends GuiScreen {
         for (File f : fs) {
             if (f.isFile() && f.getName()
                 .toLowerCase()
-                .endsWith(".kts")) return true;
+                .endsWith(".kt")) return true;
             if (f.isDirectory() && hasScriptsIn(f)) return true;
         }
         return false;
@@ -162,7 +162,7 @@ public class GuiWandScriptBind extends GuiScreen {
                     if (f.isDirectory()) dirs.add(f);
                     else if (f.isFile() && f.getName()
                         .toLowerCase()
-                        .endsWith(".kts")) scripts.add(f);
+                        .endsWith(".kt")) scripts.add(f);
                 }
                 Collections.sort(dirs, FILENAME_COMPARATOR);
                 Collections.sort(scripts, FILENAME_COMPARATOR);
@@ -301,8 +301,8 @@ public class GuiWandScriptBind extends GuiScreen {
         }
         String normalized = normalizeScriptName(name);
         if (!normalized.toLowerCase()
-            .endsWith(".kts")) {
-            normalized = normalized + ".kts";
+            .endsWith(".kt")) {
+            normalized = normalized + ".kt";
         }
         try {
             KlaymoreNetwork.CHANNEL.sendToServer(new WandBindPacket(targetEntityId, normalized));

@@ -5,7 +5,7 @@ import java.io.File
 /**
  * 全局脚本根管理器。
  *
- * 服务端根：<scriptDir>/server/Root.kts （兼容旧位置 <scriptDir>/Root.kts） 客户端根：<scriptDir>/client/Root.kts
+ * 服务端根：<scriptDir>/server/Root.kt （兼容旧位置 <scriptDir>/Root.kt） 客户端根：<scriptDir>/client/Root.kt
  *
  * 两类根独立挂载、独立 target（Dummy("root") / Dummy("client_root")）， 互不干扰。客户端根在 ClientProxy.init
  * 阶段尽早挂载（可处理主菜单等不在服务器时的逻辑）。
@@ -13,7 +13,7 @@ import java.io.File
 object GlobalRoot {
 
   // ---- 服务端根 ----
-  const val ROOT_SCRIPT_NAME = "Root.kts"
+  const val ROOT_SCRIPT_NAME = "Root.kt"
   const val SERVER_ROOT_SUBDIR = "server"
   const val ROOT_BINDING_KEY = "dummy:root"
   private val rootTarget = Dummy("root")
@@ -43,7 +43,7 @@ object GlobalRoot {
 
   @JvmStatic fun isLoaded(): Boolean = _rootContainer != null
 
-  /** 解析服务端 Root.kts 文件路径。 优先 <scriptDir>/server/Root.kts，找不到回退 <scriptDir>/Root.kts（兼容旧版）。 */
+  /** 解析服务端 Root.kt 文件路径。 优先 <scriptDir>/server/Root.kt，找不到回退 <scriptDir>/Root.kt（兼容旧版）。 */
   @JvmStatic
   fun resolveServerRootFile(): File? {
     val scriptDir = PersistenceStorage.getScriptDirectory() ?: return null
@@ -161,7 +161,7 @@ object GlobalRoot {
         "[Klaymore GlobalRoot] Mounting client $ROOT_SCRIPT_NAME from ${rootFile.absolutePath} ...")
     val container =
         ScriptContainerFactory.createAndMount(
-            "ClientRoot.kts", rootFile, clientRootTarget, null, null, ScriptSide.CLIENT)
+            "ClientRoot.kt", rootFile, clientRootTarget, null, null, ScriptSide.CLIENT)
     return if (container == null) {
       System.err.println(
           "[Klaymore GlobalRoot] FAILED to mount client $ROOT_SCRIPT_NAME (see logs)")

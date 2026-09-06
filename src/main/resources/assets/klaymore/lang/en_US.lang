@@ -7,7 +7,7 @@ tooltip.klaymore_wand.line2=Klaymore scripting tool
 
 gui.klaymore.title=Bind Script to NPC
 gui.klaymore.target=Target: %s
-gui.klaymore.script=Script name (.kts):
+gui.klaymore.script=Script name (.kt):
 gui.klaymore.bind=Bind
 gui.klaymore.unbind=Unbind All
 gui.cancel=Cancel
@@ -19,4 +19,4 @@ gui.klaymore.unbind.tooltip=Remove ALL Klaymore scripts bound to this NPC
 gui.klaymore.dir=Directory: %s
 gui.klaymore.refresh=Refresh
 gui.klaymore.refreshed=Script list refreshed
-gui.klaymore.refresh.tooltip=Rescan klaymore folder for .kts files
+gui.klaymore.refresh.tooltip=Rescan klaymore folder for .kt files

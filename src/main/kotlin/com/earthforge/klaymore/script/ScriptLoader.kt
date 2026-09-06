@@ -98,7 +98,7 @@ object ScriptLoader {
   }
 
   @JvmStatic
-  fun loadDirectory(directory: File, extension: String = "kts"): Int {
+  fun loadDirectory(directory: File, extension: String = "kt"): Int {
     if (!directory.exists() || !directory.isDirectory) return 0
     var count = 0
     directory.walkTopDown().forEach { file ->

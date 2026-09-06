@@ -17,7 +17,7 @@ public class ClientProxy extends CommonProxy {
         try {
             GlobalRoot.mountClientIfPresent();
         } catch (Throwable t) {
-            System.err.println("[Klaymore ClientProxy] Failed to mount client Root.kts: " + t.getMessage());
+            System.err.println("[Klaymore ClientProxy] Failed to mount client Root.kt: " + t.getMessage());
         }
     }
 }

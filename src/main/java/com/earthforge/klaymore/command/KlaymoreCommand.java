@@ -125,10 +125,10 @@ public class KlaymoreCommand extends CommandBase {
     }
 
     private void reloadAllScripts(final ICommandSender sender, File scriptDir) {
-        final File[] scriptFiles = scriptDir.listFiles((dir, name) -> name.endsWith(".kts"));
+        final File[] scriptFiles = scriptDir.listFiles((dir, name) -> name.endsWith(".kt"));
         if (scriptFiles == null || scriptFiles.length == 0) {
             sender
-                .addChatMessage(new ChatComponentText("No .kts script files found in: " + scriptDir.getAbsolutePath()));
+                .addChatMessage(new ChatComponentText("No .kt script files found in: " + scriptDir.getAbsolutePath()));
             return;
         }
 

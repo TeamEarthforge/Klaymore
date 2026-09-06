@@ -143,7 +143,7 @@ public final class WandEventBridge {
             s = s.replace("../", "");
         }
         if (s.startsWith("/")) s = s.substring(1);
-        if (!s.endsWith(".kts")) s = s + ".kts";
+        if (!s.endsWith(".kt")) s = s + ".kt";
         return s;
     }
 }

@@ -41,7 +41,7 @@ import kotlin.script.experimental.api.CompiledScript;
  * ┌──────────────────────────────────────────────────────────────────┐
  * │ 目录策略（2026-08-30 调整） │
  * ├──────────────────────┬───────────────────────────────────────────┤
- * │ 脚本文件 (.kts) │ 全局共享，所有世界复用 │
+ * │ 脚本文件 (.kt) │ 全局共享，所有世界复用 │
  * │ │ → .minecraft/klaymore/ (client) │
  * │ │ → <server_root>/klaymore/ (dedicated) │
  * │ │ （MinecraftDirectory.getGlobalScriptDirectory())│
@@ -51,19 +51,19 @@ import kotlin.script.experimental.api.CompiledScript;
  * │ │ （例如 saves/New World/klaymore/） │
  * ├──────────────────────┼───────────────────────────────────────────┤
  * │ 向后兼容：脚本查找 │ 若全局目录未找到该脚本，回退尝试旧位置： │
- * │ │ → <SaveDir>/klaymore/<脚本名>.kts │
+ * │ │ → <SaveDir>/klaymore/<脚本名>.kt │
  * └──────────────────────┴───────────────────────────────────────────┘
  *
  * 【为什么脚本放全局】
  * - 编译时机前置：Mod 初始化阶段（PostInitializationEvent）就能扫描
- * 并丢给后台线程异步预编译所有 .kts，玩家点击「进入世界」之前
+ * 并丢给后台线程异步预编译所有 .kt，玩家点击「进入世界」之前
  * 就已经全部编译完成 → 进地图时 compileCache 全命中，挂载瞬间完成。
  * - 避免每个存档复制同一份脚本。
  * - 专用服管理员改一次脚本，所有世界同时生效。
  *
  * 【为什么 bindings.json 仍在存档内】
  * - 绑定是「世界 -> 实体 -> 脚本」的映射，不同世界 NPC UUID 不同。
- * - A 世界的某个 NPC 绑定了 Boss.kts，不应该自动跑到 B 世界。
+ * - A 世界的某个 NPC 绑定了 Boss.kt，不应该自动跑到 B 世界。
  *
  * 【为什么是 Java 而不是 Kotlin】
  * Minecraft 1.7.10 Forge 使用 LaunchClassLoader 加载 mods 目录下的 JAR。
@@ -165,7 +165,7 @@ public final class PersistenceStorage {
     public static File resolveScriptFile(String scriptName) {
         if (scriptName == null) return null;
         File globalDir = getScriptDirectory();
-        // 1. 全局脚本目录直接（兼容旧版 Root.kts 等）
+        // 1. 全局脚本目录直接（兼容旧版 Root.kt 等）
         if (globalDir != null) {
             File f = new File(globalDir, scriptName);
             if (f.exists() && f.isFile()) return f;
@@ -211,7 +211,7 @@ public final class PersistenceStorage {
         if (scriptDir == null || !scriptDir.isDirectory()) return;
 
         final List<File> toCompile = new ArrayList<File>();
-        // 扫描全局脚本目录本身（兼容旧版直接放根目录的 .kts）
+        // 扫描全局脚本目录本身（兼容旧版直接放根目录的 .kt）
         collectKtsFiles(scriptDir, toCompile, false);
         // 扫描 server/ 和 client/ 子目录
         File serverDir = new File(scriptDir, "server");
@@ -272,7 +272,7 @@ public final class PersistenceStorage {
                 for (final File f : legacyFiles) {
                     if (!f.isFile() || !f.getName()
                         .toLowerCase()
-                        .endsWith(".kts")) continue;
+                        .endsWith(".kt")) continue;
                     String canonicalKey;
                     try {
                         canonicalKey = f.getCanonicalPath();
@@ -298,8 +298,8 @@ public final class PersistenceStorage {
     }
 
     /**
-     * 收集目录下的 .kts 文件加入 toCompile（自动去重）。
-     * 
+     * 收集目录下的 .kt 文件加入 toCompile（自动去重）。
+     *
      * @param dir       要扫描的目录
      * @param toCompile 收集结果列表
      * @param mustExist true 时目录不存在直接跳过；false 时目录不存在也跳过（行为一致，仅语义区分）
@@ -312,7 +312,7 @@ public final class PersistenceStorage {
             if (f == null || !f.isFile()) continue;
             if (!f.getName()
                 .toLowerCase()
-                .endsWith(".kts")) continue;
+                .endsWith(".kt")) continue;
             String canonicalKey;
             try {
                 canonicalKey = f.getCanonicalPath();
