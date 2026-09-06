@@ -87,12 +87,21 @@ object ScriptLoader {
       return compileCache[absolutePath]
     }
 
+    // 内存未命中 → 尝试磁盘缓存（.class 字节码，跨游戏重启复用）
+    ScriptClassCache.load(scriptFile, lastModified)?.let { cached ->
+      compileCache[absolutePath] = cached
+      lastModifiedCache[absolutePath] = lastModified
+      return cached
+    }
+
     val compileResult = performCompile(scriptFile)
     return when (compileResult) {
       is ResultWithDiagnostics.Success -> {
         val compiled = compileResult.value
         compileCache[absolutePath] = compiled
         lastModifiedCache[absolutePath] = lastModified
+        // 落盘缓存（失败不影响本次使用，只打日志）
+        ScriptClassCache.save(scriptFile, lastModified, compiled)
         compiled
       }
       is ResultWithDiagnostics.Failure -> {
@@ -404,6 +413,8 @@ object ScriptLoader {
     val path = scriptFile.absolutePath
     compileCache.remove(path)
     lastModifiedCache.remove(path)
+    // 同时清掉磁盘缓存，确保下次加载重新编译（用于 /klaymore reload 等场景）
+    ScriptClassCache.invalidate(scriptFile)
   }
 
   private val compileExecutor: ExecutorService =
@@ -425,6 +436,14 @@ object ScriptLoader {
       MainThreadDispatcher.schedule(Runnable { callback(compileCache[path]) })
       return
     }
+    // 内存未命中 → 尝试磁盘缓存（命中则直接回调，无需走编译线程）
+    val cached = ScriptClassCache.load(scriptFile, lastModified)
+    if (cached != null) {
+      compileCache[path] = cached
+      lastModifiedCache[path] = lastModified
+      MainThreadDispatcher.schedule(Runnable { callback(cached) })
+      return
+    }
     // 未命中 → 提交到后台编译线程
     compileExecutor.submit {
       try {
@@ -436,6 +455,8 @@ object ScriptLoader {
             val script = (compiled as ResultWithDiagnostics.Success<CompiledScript>).value
             compileCache[path] = script
             lastModifiedCache[path] = lastModified
+            // 落盘缓存（失败不影响本次使用）
+            ScriptClassCache.save(scriptFile, lastModified, script)
             callback(script)
           } else {
             callback(null)

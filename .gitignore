@@ -36,3 +36,6 @@ addon.local.gradle.kts
 addon.late.local.gradle
 addon.late.local.gradle.kts
 layout.json
+
+# 项目排除路径
+/script-runtime/build/
