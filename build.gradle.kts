@@ -6,6 +6,8 @@ plugins {
   kotlin("jvm")
 }
 
+project.version = "0.1.0"
+
 repositories { mavenCentral() }
 
 // ⚠️ 说明：kotlin("jvm") 插件会自动把 kotlin-stdlib 加到 implementation
