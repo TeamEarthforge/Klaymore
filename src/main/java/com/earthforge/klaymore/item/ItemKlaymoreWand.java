@@ -1,7 +1,7 @@
 package com.earthforge.klaymore.item;
 
-import cpw.mods.fml.relauncher.Side;
-import cpw.mods.fml.relauncher.SideOnly;
+import java.util.List;
+
 import net.minecraft.client.renderer.texture.IIconRegister;
 import net.minecraft.entity.EntityLivingBase;
 import net.minecraft.entity.player.EntityPlayer;
@@ -12,7 +12,8 @@ import net.minecraft.util.EnumChatFormatting;
 import net.minecraft.util.StatCollector;
 import net.minecraft.world.World;
 
-import java.util.List;
+import cpw.mods.fml.relauncher.Side;
+import cpw.mods.fml.relauncher.SideOnly;
 
 public class ItemKlaymoreWand extends Item {
 
@@ -28,9 +29,13 @@ public class ItemKlaymoreWand extends Item {
         if (!player.worldObj.isRemote) {
             if (target instanceof net.minecraft.entity.Entity) {
                 int entityId = target.getEntityId();
-                player.openGui(com.earthforge.klaymore.Klaymore.instance,
+                player.openGui(
+                    com.earthforge.klaymore.Klaymore.instance,
                     com.earthforge.klaymore.wand.WandGuiHandler.GUI_ID_WAND_BIND,
-                    player.worldObj, entityId, 0, 0);
+                    player.worldObj,
+                    entityId,
+                    0,
+                    0);
                 return true;
             }
         }

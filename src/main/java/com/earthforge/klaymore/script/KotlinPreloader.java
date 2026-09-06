@@ -9,9 +9,9 @@ package com.earthforge.klaymore.script;
  * LaunchClassLoader 内部的 resourceCache / classLoader 字段还没有完全初始化，
  * 它的 findClass() 方法会在第 182 行直接抛出 NullPointerException，被外层
  * 包装为 ClassNotFoundException:
- *   kotlin/jvm/internal/Intrinsics
- *   kotlin/jvm/functions/Function1
- *   等 kotlin.* 类
+ * kotlin/jvm/internal/Intrinsics
+ * kotlin/jvm/functions/Function1
+ * 等 kotlin.* 类
  *
  * 最坑的是：「在 Kotlin 方法里预热 Kotlin 运行时」这条路走不通 ——
  * 因为 Kotlin 编译器在每个 Kotlin 方法最开头都会注入 Intrinsics 的静态
@@ -23,12 +23,12 @@ package com.earthforge.klaymore.script;
  * 代码本身必须是纯 Java（不引入任何 kotlin.* 符号引用）。
  *
  * 原理：
- *   每个 Class 一旦被「任意父级/上下文类加载器」成功 defineClass，
- *   LaunchClassLoader 会通过 parent-delegation 先在父加载器里找这个
- *   类，直接命中已缓存的结果，根本不会走它自己那个会 NPE 的 findClass。
- *   本类用本类自己的 ClassLoader（通常是 AppClassLoader / LaunchClassLoader 的父）
- *   去 Class.forName(initialize=true) 把 Kotlin 运行时里所有 1.7.10 会用到
- *   的类全部加载初始化一遍。这样后续所有 Kotlin 调用都会安全命中缓存。
+ * 每个 Class 一旦被「任意父级/上下文类加载器」成功 defineClass，
+ * LaunchClassLoader 会通过 parent-delegation 先在父加载器里找这个
+ * 类，直接命中已缓存的结果，根本不会走它自己那个会 NPE 的 findClass。
+ * 本类用本类自己的 ClassLoader（通常是 AppClassLoader / LaunchClassLoader 的父）
+ * 去 Class.forName(initialize=true) 把 Kotlin 运行时里所有 1.7.10 会用到
+ * 的类全部加载初始化一遍。这样后续所有 Kotlin 调用都会安全命中缓存。
  *
  * 调用位置：Klaymore.preInit() 第一行，甚至在 proxy.preInit(event) 之前。
  * ================================================================
@@ -42,10 +42,10 @@ public final class KotlinPreloader {
 
     /**
      * 【2025-08-30 重大变更：不再 relocate kotlin！】
-     *   之前为了理论上的冲突防范 relocate kotlin，结果引发了 builtins 字符串污染 +
-     *   开发环境命名空间不一致等一连串难解问题。
-     *   Forge 1.7.10 年代根本没有其他 mod 带 Kotlin，冲突概率 = 0。
-     *   所以现在直接使用原汁原味 kotlin.* / kotlinx.* / org.jetbrains.kotlin.* 原名。
+     * 之前为了理论上的冲突防范 relocate kotlin，结果引发了 builtins 字符串污染 +
+     * 开发环境命名空间不一致等一连串难解问题。
+     * Forge 1.7.10 年代根本没有其他 mod 带 Kotlin，冲突概率 = 0。
+     * 所以现在直接使用原汁原味 kotlin.* / kotlinx.* / org.jetbrains.kotlin.* 原名。
      *
      * 保留 SHADOW_PREFIX 变量只是为了兼容：如果将来有需要重新 relocate，
      * 这里改一个值就行，tryLoadClass 还是会先原命名、再 shadow 名依次尝试。
@@ -60,68 +60,38 @@ public final class KotlinPreloader {
      */
     private static final String[] KOTLIN_REQUIRED_CLASSES = new String[] {
         // ---- kotlin.jvm.internal（Kotlin 编译器硬引用的，最最关键）----
-        "kotlin.jvm.internal.Intrinsics",
-        "kotlin.jvm.internal.Intrinsics$WhenMappings",
-        "kotlin.jvm.internal.ClassReference",
-        "kotlin.jvm.internal.FunctionReference",
-        "kotlin.jvm.internal.CallableReference",
-        "kotlin.jvm.internal.PropertyReference0Impl",
-        "kotlin.jvm.internal.PropertyReference1Impl",
-        "kotlin.jvm.internal.MutablePropertyReference0Impl",
-        "kotlin.jvm.internal.MutablePropertyReference1Impl",
-        "kotlin.jvm.internal.Lambda",
-        "kotlin.jvm.internal.Reflection",
-        "kotlin.jvm.internal.ReflectionFactory",
+        "kotlin.jvm.internal.Intrinsics", "kotlin.jvm.internal.Intrinsics$WhenMappings",
+        "kotlin.jvm.internal.ClassReference", "kotlin.jvm.internal.FunctionReference",
+        "kotlin.jvm.internal.CallableReference", "kotlin.jvm.internal.PropertyReference0Impl",
+        "kotlin.jvm.internal.PropertyReference1Impl", "kotlin.jvm.internal.MutablePropertyReference0Impl",
+        "kotlin.jvm.internal.MutablePropertyReference1Impl", "kotlin.jvm.internal.Lambda",
+        "kotlin.jvm.internal.Reflection", "kotlin.jvm.internal.ReflectionFactory",
 
         // ---- kotlin.jvm.functions（Kotlin 函数类型的 SAM 接口）----
-        "kotlin.jvm.functions.Function0",
-        "kotlin.jvm.functions.Function1",
-        "kotlin.jvm.functions.Function2",
-        "kotlin.jvm.functions.Function3",
-        "kotlin.jvm.functions.Function4",
-        "kotlin.jvm.functions.Function5",
+        "kotlin.jvm.functions.Function0", "kotlin.jvm.functions.Function1", "kotlin.jvm.functions.Function2",
+        "kotlin.jvm.functions.Function3", "kotlin.jvm.functions.Function4", "kotlin.jvm.functions.Function5",
 
         // ---- kotlin / kotlin.jvm 基础类型 ----
-        "kotlin.Unit",
-        "kotlin.Nothing",
-        "kotlin.Any",
-        "kotlin.Lazy",
-        "kotlin.LazyKt",
-        "kotlin.LazyJVMKt",
-        "kotlin.Pair",
-        "kotlin.Triple",
-        "kotlin.jvm.JvmClassMappingKt",
-        "kotlin.jvm.JvmStatic",
-        "kotlin.jvm.JvmOverloads",
-        "kotlin.jvm.JvmField",
+        "kotlin.Unit", "kotlin.Nothing", "kotlin.Any", "kotlin.Lazy", "kotlin.LazyKt", "kotlin.LazyJVMKt",
+        "kotlin.Pair", "kotlin.Triple", "kotlin.jvm.JvmClassMappingKt", "kotlin.jvm.JvmStatic",
+        "kotlin.jvm.JvmOverloads", "kotlin.jvm.JvmField",
 
         // ---- kotlin.collections（最常用的集合，SubscriberRegistry 等会用到）----
-        "kotlin.collections.CollectionsKt",
-        "kotlin.collections.CollectionsKt__CollectionsKt",
-        "kotlin.collections.CollectionsKt__IterablesKt",
-        "kotlin.collections.CollectionsKt__MutableCollectionsKt",
-        "kotlin.collections.MapsKt",
-        "kotlin.collections.MapsKt__MapsKt",
-        "kotlin.collections.SetsKt",
-        "kotlin.collections.ArraysKt",
-        "kotlin.ranges.RangesKt",
-        "kotlin.ranges.IntRange",
+        "kotlin.collections.CollectionsKt", "kotlin.collections.CollectionsKt__CollectionsKt",
+        "kotlin.collections.CollectionsKt__IterablesKt", "kotlin.collections.CollectionsKt__MutableCollectionsKt",
+        "kotlin.collections.MapsKt", "kotlin.collections.MapsKt__MapsKt", "kotlin.collections.SetsKt",
+        "kotlin.collections.ArraysKt", "kotlin.ranges.RangesKt", "kotlin.ranges.IntRange",
 
         // ---- kotlin.jvm.internal.markers（有些 KClass 强转用）----
         "kotlin.jvm.internal.markers.KMappedMarker",
 
         // ---- kotlin.reflect（KClass 引用会用到）----
-        "kotlin.KClass",
-        "kotlin.jvm.internal.ClassBasedDeclarationContainer",
-        "kotlin.jvm.internal.KClassImpl",
+        "kotlin.KClass", "kotlin.jvm.internal.ClassBasedDeclarationContainer", "kotlin.jvm.internal.KClassImpl",
         "kotlin.jvm.internal.KotlinReflectionInternalError",
 
         // ---- 额外的 shadow 后也可能直接引用 kotlinx / org.jetbrains 下的类 ----
-        "kotlinx.coroutines.Job",
-        "kotlinx.coroutines.CoroutineScope",
-        "org.jetbrains.annotations.Nullable",
-        "org.jetbrains.annotations.NotNull"
-    };
+        "kotlinx.coroutines.Job", "kotlinx.coroutines.CoroutineScope", "org.jetbrains.annotations.Nullable",
+        "org.jetbrains.annotations.NotNull" };
 
     /**
      * 尝试加载单个类，失败不抛出（静默）。
@@ -132,14 +102,12 @@ public final class KotlinPreloader {
         try {
             Class.forName(rawName, true, loader);
             return true;
-        } catch (Throwable ignored) {
-        }
+        } catch (Throwable ignored) {}
         String shadowName = SHADOW_PREFIX + rawName;
         try {
             Class.forName(shadowName, true, loader);
             return true;
-        } catch (Throwable ignored) {
-        }
+        } catch (Throwable ignored) {}
         return false;
     }
 
@@ -169,22 +137,26 @@ public final class KotlinPreloader {
                         firstFailure = rawName;
                     }
                     if (failCount == 1) {
-                        System.err.println("[Klaymore] KotlinPreloader: class not found on classpath (is klaymore-runtime.jar present?): "
-                            + rawName);
+                        System.err.println(
+                            "[Klaymore] KotlinPreloader: class not found on classpath (is klaymore-runtime.jar present?): "
+                                + rawName);
                     }
                 }
             }
             sPreloaded = true;
             boolean allOk = failCount == 0;
             if (allOk) {
-                System.out.println("[Klaymore] KotlinPreloader OK: " + successCount
-                    + " Kotlin runtime classes preloaded (pure-Java warm-up path, no-relocate)");
+                System.out.println(
+                    "[Klaymore] KotlinPreloader OK: " + successCount
+                        + " Kotlin runtime classes preloaded (pure-Java warm-up path, no-relocate)");
             } else {
-                System.out.println("[Klaymore] KotlinPreloader PARTIAL: "
-                    + successCount + " loaded, " + failCount
-                    + " missing. First missing class was: "
-                    + (firstFailure == null ? "" : firstFailure)
-                    + " → please ensure klaymore-runtime.jar is placed in mods/ folder alongside Klaymore jar.");
+                System.out.println(
+                    "[Klaymore] KotlinPreloader PARTIAL: " + successCount
+                        + " loaded, "
+                        + failCount
+                        + " missing. First missing class was: "
+                        + (firstFailure == null ? "" : firstFailure)
+                        + " → please ensure klaymore-runtime.jar is placed in mods/ folder alongside Klaymore jar.");
             }
             return allOk;
         }

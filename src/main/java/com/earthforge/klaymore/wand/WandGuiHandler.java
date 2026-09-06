@@ -1,11 +1,12 @@
 package com.earthforge.klaymore.wand;
 
-import com.earthforge.klaymore.item.ContainerWandScriptBind;
-
-import cpw.mods.fml.common.network.IGuiHandler;
 import net.minecraft.entity.player.EntityPlayer;
 import net.minecraft.entity.player.EntityPlayerMP;
 import net.minecraft.world.World;
+
+import com.earthforge.klaymore.item.ContainerWandScriptBind;
+
+import cpw.mods.fml.common.network.IGuiHandler;
 
 public final class WandGuiHandler implements IGuiHandler {
 

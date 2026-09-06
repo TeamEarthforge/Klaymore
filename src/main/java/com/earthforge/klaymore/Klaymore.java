@@ -1,22 +1,11 @@
 package com.earthforge.klaymore;
 
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
+import java.util.function.Function;
 
-import cpw.mods.fml.common.Mod;
-import cpw.mods.fml.common.SidedProxy;
-import cpw.mods.fml.common.event.FMLInitializationEvent;
-import cpw.mods.fml.common.event.FMLPostInitializationEvent;
-import cpw.mods.fml.common.event.FMLPreInitializationEvent;
-import cpw.mods.fml.common.event.FMLServerStartingEvent;
-import cpw.mods.fml.common.event.FMLServerStoppingEvent;
-import cpw.mods.fml.common.FMLCommonHandler;
-
-import cpw.mods.fml.common.eventhandler.Event;
-import cpw.mods.fml.common.eventhandler.EventBus;
 import net.minecraftforge.common.MinecraftForge;
 
-import java.util.function.Function;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import com.earthforge.klaymore.event.ForgeEventHandler;
 import com.earthforge.klaymore.script.BuiltinTargetExtractors;
@@ -25,6 +14,17 @@ import com.earthforge.klaymore.script.GlobalRoot;
 import com.earthforge.klaymore.script.KotlinPreloader;
 import com.earthforge.klaymore.script.PersistenceStorage;
 import com.earthforge.klaymore.script.SubscriberRegistry;
+
+import cpw.mods.fml.common.FMLCommonHandler;
+import cpw.mods.fml.common.Mod;
+import cpw.mods.fml.common.SidedProxy;
+import cpw.mods.fml.common.event.FMLInitializationEvent;
+import cpw.mods.fml.common.event.FMLPostInitializationEvent;
+import cpw.mods.fml.common.event.FMLPreInitializationEvent;
+import cpw.mods.fml.common.event.FMLServerStartingEvent;
+import cpw.mods.fml.common.event.FMLServerStoppingEvent;
+import cpw.mods.fml.common.eventhandler.Event;
+import cpw.mods.fml.common.eventhandler.EventBus;
 
 @Mod(modid = Klaymore.MODID, version = Tags.VERSION, name = "MyMod", acceptedMinecraftVersions = "[1.7.10]")
 public class Klaymore {
@@ -48,15 +48,20 @@ public class Klaymore {
      * 派发任意事件给 Klaymore 脚本层（自动查找提取器 + 定向派发）。
      * <p>
      * 用法（其他 Mod 里）：
-     * <pre>{@code
-     *   MyCustomEvent event = new MyCustomEvent(player, data);
-     *   boolean handled = Klaymore.postScriptEvent(event);
-     * }</pre>
+     * 
+     * <pre>
+     * 
+     * {
+     *     &#64;code
+     *     MyCustomEvent event = new MyCustomEvent(player, data);
+     *     boolean handled = Klaymore.postScriptEvent(event);
+     * }
+     * </pre>
      * <p>
      * 派发逻辑完全和 Forge 内置事件一致：
-     *   - 已注册提取器 → 提取目标 → 定向派发（有提取器绝不会全广播）
-     *   - 未注册提取器 → 全广播（首次会打 warn，可 registerTargetExtractor 消除）
-     *   - 事件类型如果被 markAsSkippedEvent → 直接 false return，完全不进入脚本层
+     * - 已注册提取器 → 提取目标 → 定向派发（有提取器绝不会全广播）
+     * - 未注册提取器 → 全广播（首次会打 warn，可 registerTargetExtractor 消除）
+     * - 事件类型如果被 markAsSkippedEvent → 直接 false return，完全不进入脚本层
      *
      * @param event 任意事件对象（继承 cpw.mods.fml.common.eventhandler.Event，或纯 POJO 均可）
      * @return true 表示至少有一个脚本处理器被调用
@@ -67,10 +72,16 @@ public class Klaymore {
         try {
             return SubscriberRegistry.dispatch(event);
         } catch (Throwable t) {
-            String eventName = event.getClass().getSimpleName();
-            String errName = t.getClass().getSimpleName();
-            LOG.error("[Klaymore] API postScriptEvent failed (" + eventName + "): "
-                + t.getMessage() + " (api-called from another mod)", t);
+            String eventName = event.getClass()
+                .getSimpleName();
+            String errName = t.getClass()
+                .getSimpleName();
+            LOG.error(
+                "[Klaymore] API postScriptEvent failed (" + eventName
+                    + "): "
+                    + t.getMessage()
+                    + " (api-called from another mod)",
+                t);
             return false;
         }
     }
@@ -79,12 +90,17 @@ public class Klaymore {
      * 派发事件给 Klaymore 脚本层，并显式指定绑定目标（跳过提取器查找）。
      * <p>
      * 用法（其他 Mod 里）：
-     * <pre>{@code
-     *   MyEvent evt = new MyEvent(player, someData);
-     *   Klaymore.postScriptEvent(evt, player);   // 只派发给绑定了这个 player 的脚本
-     * }</pre>
+     * 
+     * <pre>
+     * 
+     * {
+     *     &#64;code
+     *     MyEvent evt = new MyEvent(player, someData);
+     *     Klaymore.postScriptEvent(evt, player); // 只派发给绑定了这个 player 的脚本
+     * }
+     * </pre>
      *
-     * @param event 任意事件对象
+     * @param event  任意事件对象
      * @param target 绑定目标（脚本 subscribe 时通过 register() 绑定的那个对象，例如玩家/方块坐标）
      * @return true 表示至少有一个脚本处理器被调用
      */
@@ -94,9 +110,9 @@ public class Klaymore {
         try {
             return SubscriberRegistry.dispatch(event, target);
         } catch (Throwable t) {
-            String eventName = event.getClass().getSimpleName();
-            LOG.error("[Klaymore] API postScriptEvent(target) failed (" + eventName + "): "
-                + t.getMessage(), t);
+            String eventName = event.getClass()
+                .getSimpleName();
+            LOG.error("[Klaymore] API postScriptEvent(target) failed (" + eventName + "): " + t.getMessage(), t);
             return false;
         }
     }
@@ -105,24 +121,25 @@ public class Klaymore {
      * 注册事件目标提取器（给其他 Mod 的自定义事件类型用）。
      * <p>
      * 用法（其他 Mod 里，推荐在 preInit 阶段调用）：
-     * <pre>{@code
+     * 
+     * <pre>
+     * {@code
      *   Klaymore.registerTargetExtractor(MyQuestEvent.class, e -> e.player);
      *   // 多目标：返回 List / 数组，会派发到多个目标，自动去重同一个 handler 调用
      *   Klaymore.registerTargetExtractor(MyTradeEvent.class, e -> {
      *       return Arrays.asList(e.player, e.villager);
      *   });
-     * }</pre>
+     * }
+     * </pre>
      * <p>
      * 注：继承链查找是自动的 —— 注册了 EntityEvent.class 的提取器，
      * EntityJoinWorldEvent 等子类会自动命中（除非子类有更精确的提取器注册）。
      *
      * @param eventClass 事件类型
      * @param extractor  事件 → 目标对象（或目标集合/数组）的提取函数。返回 null 表示本次无有效目标。
-     * @param <T> 事件类型，必须继承 cpw.mods.fml.common.eventhandler.Event
+     * @param <T>        事件类型，必须继承 cpw.mods.fml.common.eventhandler.Event
      */
-    public static <T extends Event> void registerTargetExtractor(
-            Class<T> eventClass,
-            Function<T, ?> extractor) {
+    public static <T extends Event> void registerTargetExtractor(Class<T> eventClass, Function<T, ?> extractor) {
         if (eventClass == null || extractor == null) return;
         EventTargetRegistrar.registerExtractor(eventClass, extractor);
     }
@@ -173,11 +190,11 @@ public class Klaymore {
         // =================================================================
         try {
             Class.forName("com.earthforge.klaymore.wand.WandForgeEventHandler")
-                .getMethod("register").invoke(null);
+                .getMethod("register")
+                .invoke(null);
             LOG.info("[Klaymore] Wand Forge event handler registered");
         } catch (Throwable t) {
-            LOG.warn("[Klaymore] Wand Forge event handler register failed (non-fatal): "
-                + t.getMessage());
+            LOG.warn("[Klaymore] Wand Forge event handler register failed (non-fatal): " + t.getMessage());
         }
 
         // =================================================================
@@ -204,7 +221,8 @@ public class Klaymore {
         // =================================================================
         try {
             EventBus forgeBus = MinecraftForge.EVENT_BUS;
-            EventBus fmlBus = FMLCommonHandler.instance().bus();
+            EventBus fmlBus = FMLCommonHandler.instance()
+                .bus();
             int registered = 0;
             // 注意：getManagedEventClasses 来自纯 Java 的 EventTargetRegistrar，
             // 不是 SubscriberRegistry（Kotlin）。这一阶段仍然完全不进入 Kotlin。
@@ -214,9 +232,11 @@ public class Klaymore {
                     registered++;
                 }
             }
-            LOG.info("[Klaymore] Typed event bridges registered: " + registered + " classes "
-                + "(RenderTickEvent/ClientTickEvent and other skipped events are NOT registered, "
-                + "so they will never reach our code — no more frame drops from catch-all listener)");
+            LOG.info(
+                "[Klaymore] Typed event bridges registered: " + registered
+                    + " classes "
+                    + "(RenderTickEvent/ClientTickEvent and other skipped events are NOT registered, "
+                    + "so they will never reach our code — no more frame drops from catch-all listener)");
         } catch (Throwable t) {
             LOG.error("[Klaymore] Failed to register typed event bridges: " + t.getMessage(), t);
         }
@@ -232,8 +252,7 @@ public class Klaymore {
         try {
             SubscriberRegistry.preloadKotlinStdlib();
         } catch (Throwable t) {
-            LOG.warn("[Klaymore] Kotlin-side preload warning (non-fatal, deferred to first event): "
-                + t.getMessage());
+            LOG.warn("[Klaymore] Kotlin-side preload warning (non-fatal, deferred to first event): " + t.getMessage());
         }
     }
 
@@ -247,15 +266,16 @@ public class Klaymore {
         proxy.postInit(event);
 
         // ⭐⭐⭐ 关键：在玩家点击"进入世界"按钮之前就启动后台预编译所有脚本！⭐⭐⭐
-        //   此时 Minecraft 已完全初始化，mcDataDir / server root 都已可用。
-        //   后台是单线程 daemon 池，不会占用任何游戏主线程 CPU。
-        //   等用户真正进入世界触发 EntityJoinWorld / PersistenceStorage.loadAll() 时，
-        //   脚本早就躺在 compileCache 里了，createAndMount 全程 ≤ 1ms（缓存命中 + newInstance）
+        // 此时 Minecraft 已完全初始化，mcDataDir / server root 都已可用。
+        // 后台是单线程 daemon 池，不会占用任何游戏主线程 CPU。
+        // 等用户真正进入世界触发 EntityJoinWorld / PersistenceStorage.loadAll() 时，
+        // 脚本早就躺在 compileCache 里了，createAndMount 全程 ≤ 1ms（缓存命中 + newInstance）
         try {
             PersistenceStorage.precompileAllScriptsNow();
         } catch (Throwable t) {
-            LOG.warn("[Klaymore] PostInit script pre-compile warning (non-fatal, will retry at world load): "
-                + t.getMessage());
+            LOG.warn(
+                "[Klaymore] PostInit script pre-compile warning (non-fatal, will retry at world load): "
+                    + t.getMessage());
         }
     }
 
@@ -275,8 +295,8 @@ public class Klaymore {
             LOG.error("[Klaymore] Failed to load persisted bindings cache: " + t.getMessage(), t);
         }
         // 阶段 ②：挂载 Root，此时 getCachedBindingData("dummy:root") 能读到 bootCount
-        //         → 直接作为 initialPersistentData 传给 Root 容器（init 立刻能用）
-        //         → 挂载后调用 markBound("dummy:root")，把 key 填进 boundKeys 占坑
+        // → 直接作为 initialPersistentData 传给 Root 容器（init 立刻能用）
+        // → 挂载后调用 markBound("dummy:root")，把 key 填进 boundKeys 占坑
         LOG.info("[Klaymore] Mounting global Root.kts (booting with cached persistent data)...");
         try {
             GlobalRoot.mountIfPresent();
@@ -284,8 +304,8 @@ public class Klaymore {
             LOG.error("[Klaymore] Failed to mount Root.kts: " + t.getMessage(), t);
         }
         // 阶段 ③：真正处理实体绑定（玩家/NPC/方块脚本）
-        //         dummy:root 已在 boundKeys 里 → tryBindEntry 第一行就 return 跳过
-        //         → 不会再为 Root 创建第二个容器 ✅
+        // dummy:root 已在 boundKeys 里 → tryBindEntry 第一行就 return 跳过
+        // → 不会再为 Root 创建第二个容器 ✅
         LOG.info("[Klaymore] Processing entity script bindings from cache...");
         try {
             PersistenceStorage.processAllBindings();
@@ -306,7 +326,7 @@ public class Klaymore {
         }
         LOG.info("[Klaymore] Unmounting global Root.kts...");
         try {
-            GlobalRoot.unmount();
+            GlobalRoot.unmountAll();
         } catch (Throwable t) {
             LOG.error("[Klaymore] Failed to unmount Root.kts: " + t.getMessage(), t);
         }

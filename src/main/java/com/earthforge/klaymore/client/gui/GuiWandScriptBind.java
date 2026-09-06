@@ -1,11 +1,11 @@
 package com.earthforge.klaymore.client.gui;
 
-import com.earthforge.klaymore.MinecraftDirectory;
-import com.earthforge.klaymore.network.KlaymoreNetwork;
-import com.earthforge.klaymore.wand.WandBindPacket;
+import java.io.File;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Comparator;
+import java.util.List;
 
-import cpw.mods.fml.relauncher.Side;
-import cpw.mods.fml.relauncher.SideOnly;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiButton;
 import net.minecraft.client.gui.GuiScreen;
@@ -16,14 +16,16 @@ import net.minecraft.client.resources.I18n;
 import net.minecraft.entity.Entity;
 import net.minecraft.entity.player.EntityPlayer;
 import net.minecraft.util.EnumChatFormatting;
+
 import org.lwjgl.input.Keyboard;
 import org.lwjgl.opengl.GL11;
 
-import java.io.File;
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.Comparator;
-import java.util.List;
+import com.earthforge.klaymore.MinecraftDirectory;
+import com.earthforge.klaymore.network.KlaymoreNetwork;
+import com.earthforge.klaymore.wand.WandBindPacket;
+
+import cpw.mods.fml.relauncher.Side;
+import cpw.mods.fml.relauncher.SideOnly;
 
 @SideOnly(Side.CLIENT)
 public class GuiWandScriptBind extends GuiScreen {
@@ -70,21 +72,24 @@ public class GuiWandScriptBind extends GuiScreen {
         }
 
         // ⭐⭐⭐ 新策略：脚本现在是「全局共享」，放 .minecraft/klaymore （与 saves/ 同级）⭐⭐⭐
-        //   这样 Mod PostInit 时就能提前预编译所有脚本，玩家进入世界时 0 等待挂载。
+        // 这样 Mod PostInit 时就能提前预编译所有脚本，玩家进入世界时 0 等待挂载。
         this.rootScriptDir = MinecraftDirectory.getGlobalScriptDirectory();
         if (!this.rootScriptDir.exists()) {
             if (!this.rootScriptDir.mkdirs()) {
-                System.err.println("[Klaymore Wand] WARN: cannot mkdir global script dir: "
-                    + this.rootScriptDir.getAbsolutePath());
+                System.err.println(
+                    "[Klaymore Wand] WARN: cannot mkdir global script dir: " + this.rootScriptDir.getAbsolutePath());
             }
         }
 
         // 检测旧位置是否有遗留脚本 → 给 GUI 上的「迁移提示」用
         this.legacySaveScriptDir = getLegacySaveScriptDirectorySafe();
         if (hasScriptsIn(this.legacySaveScriptDir)) {
-            System.out.println("[Klaymore Wand] NOTICE: legacy scripts detected in save-local klaymore dir ("
-                + this.legacySaveScriptDir.getAbsolutePath() + "). "
-                + "Please move them to global dir: " + this.rootScriptDir.getAbsolutePath());
+            System.out.println(
+                "[Klaymore Wand] NOTICE: legacy scripts detected in save-local klaymore dir ("
+                    + this.legacySaveScriptDir.getAbsolutePath()
+                    + "). "
+                    + "Please move them to global dir: "
+                    + this.rootScriptDir.getAbsolutePath());
         }
 
         this.currentDir = this.rootScriptDir;
@@ -133,7 +138,9 @@ public class GuiWandScriptBind extends GuiScreen {
         File[] fs = dir.listFiles();
         if (fs == null) return false;
         for (File f : fs) {
-            if (f.isFile() && f.getName().toLowerCase().endsWith(".kts")) return true;
+            if (f.isFile() && f.getName()
+                .toLowerCase()
+                .endsWith(".kts")) return true;
             if (f.isDirectory() && hasScriptsIn(f)) return true;
         }
         return false;
@@ -143,8 +150,7 @@ public class GuiWandScriptBind extends GuiScreen {
 
     private void refreshEntries() {
         List<FileEntry> list = new ArrayList<FileEntry>();
-        if (currentDir != null && currentDir.isDirectory()
-            && !isSameFile(currentDir, rootScriptDir.getParentFile())) {
+        if (currentDir != null && currentDir.isDirectory() && !isSameFile(currentDir, rootScriptDir.getParentFile())) {
             list.add(new FileEntry(true, null, UP_LABEL));
         }
         if (currentDir != null && currentDir.isDirectory()) {
@@ -154,7 +160,9 @@ public class GuiWandScriptBind extends GuiScreen {
                 List<File> scripts = new ArrayList<File>();
                 for (File f : files) {
                     if (f.isDirectory()) dirs.add(f);
-                    else if (f.isFile() && f.getName().toLowerCase().endsWith(".kts")) scripts.add(f);
+                    else if (f.isFile() && f.getName()
+                        .toLowerCase()
+                        .endsWith(".kts")) scripts.add(f);
                 }
                 Collections.sort(dirs, FILENAME_COMPARATOR);
                 Collections.sort(scripts, FILENAME_COMPARATOR);
@@ -170,18 +178,22 @@ public class GuiWandScriptBind extends GuiScreen {
     }
 
     private static final Comparator<File> FILENAME_COMPARATOR = new Comparator<File>() {
+
         @Override
         public int compare(File a, File b) {
-            return a.getName().compareToIgnoreCase(b.getName());
+            return a.getName()
+                .compareToIgnoreCase(b.getName());
         }
     };
 
     private static boolean isSameFile(File a, File b) {
         if (a == null || b == null) return a == b;
         try {
-            return a.getCanonicalFile().equals(b.getCanonicalFile());
+            return a.getCanonicalFile()
+                .equals(b.getCanonicalFile());
         } catch (Throwable ignored) {
-            return a.getAbsoluteFile().equals(b.getAbsoluteFile());
+            return a.getAbsoluteFile()
+                .equals(b.getAbsoluteFile());
         }
     }
 
@@ -217,15 +229,19 @@ public class GuiWandScriptBind extends GuiScreen {
         fileSlot = new FileSlot(mc, listW, listH, listY, listY + listH, listX, 14);
 
         int scriptFieldY = guiTop + 184;
-        scriptNameField = new GuiTextField(fontRendererObj,
-            guiLeft + 10, scriptFieldY, GUI_WIDTH - 114, 18);
+        scriptNameField = new GuiTextField(fontRendererObj, guiLeft + 10, scriptFieldY, GUI_WIDTH - 114, 18);
         scriptNameField.setMaxStringLength(160);
         scriptNameField.setFocused(true);
         scriptNameField.setText(selectedRelative);
 
         buttonList.clear();
 
-        btnRefresh = new GuiButton(3, guiLeft + GUI_WIDTH - 98, scriptFieldY - 1, 88, 18,
+        btnRefresh = new GuiButton(
+            3,
+            guiLeft + GUI_WIDTH - 98,
+            scriptFieldY - 1,
+            88,
+            18,
             I18n.format("gui.klaymore.refresh"));
         buttonList.add(btnRefresh);
 
@@ -235,16 +251,13 @@ public class GuiWandScriptBind extends GuiScreen {
         int total = btnWidth * 3 + gap * 2;
         int startX = guiLeft + (GUI_WIDTH - total) / 2;
 
-        btnUnbind = new GuiButton(1, startX, btnY, btnWidth, 20,
-            I18n.format("gui.klaymore.unbind"));
+        btnUnbind = new GuiButton(1, startX, btnY, btnWidth, 20, I18n.format("gui.klaymore.unbind"));
         buttonList.add(btnUnbind);
 
-        btnBind = new GuiButton(0, startX + btnWidth + gap, btnY, btnWidth, 20,
-            I18n.format("gui.klaymore.bind"));
+        btnBind = new GuiButton(0, startX + btnWidth + gap, btnY, btnWidth, 20, I18n.format("gui.klaymore.bind"));
         buttonList.add(btnBind);
 
-        btnCancel = new GuiButton(2, startX + (btnWidth + gap) * 2, btnY, btnWidth, 20,
-            I18n.format("gui.cancel"));
+        btnCancel = new GuiButton(2, startX + (btnWidth + gap) * 2, btnY, btnWidth, 20, I18n.format("gui.cancel"));
         buttonList.add(btnCancel);
     }
 
@@ -279,13 +292,16 @@ public class GuiWandScriptBind extends GuiScreen {
     // ---------- 操作 ----------
 
     private void doBind() {
-        String name = scriptNameField == null ? "" : scriptNameField.getText().trim();
+        String name = scriptNameField == null ? ""
+            : scriptNameField.getText()
+                .trim();
         if (name.isEmpty()) {
             flashStatus(EnumChatFormatting.RED + I18n.format("gui.klaymore.err.empty"));
             return;
         }
         String normalized = normalizeScriptName(name);
-        if (!normalized.toLowerCase().endsWith(".kts")) {
+        if (!normalized.toLowerCase()
+            .endsWith(".kts")) {
             normalized = normalized + ".kts";
         }
         try {
@@ -306,7 +322,8 @@ public class GuiWandScriptBind extends GuiScreen {
     }
 
     private static String normalizeScriptName(String raw) {
-        String s = raw.trim().replace('\\', '/');
+        String s = raw.trim()
+            .replace('\\', '/');
         while (s.contains("../")) s = s.replace("../", "");
         while (s.startsWith("/")) s = s.substring(1);
         return s;
@@ -327,8 +344,7 @@ public class GuiWandScriptBind extends GuiScreen {
 
         if (entry.isUpLabel) {
             File parent = currentDir.getParentFile();
-            if (parent != null && (isSameFile(parent, rootScriptDir)
-                || isAncestorOf(rootScriptDir, parent))) {
+            if (parent != null && (isSameFile(parent, rootScriptDir) || isAncestorOf(rootScriptDir, parent))) {
                 currentDir = parent;
                 refreshEntries();
             }
@@ -366,17 +382,25 @@ public class GuiWandScriptBind extends GuiScreen {
     @Override
     protected void keyTyped(char c, int keyCode) {
         if (scriptNameField != null && scriptNameField.isFocused()) {
-            if (keyCode == Keyboard.KEY_RETURN) { doBind(); return; }
+            if (keyCode == Keyboard.KEY_RETURN) {
+                doBind();
+                return;
+            }
             scriptNameField.textboxKeyTyped(c, keyCode);
         } else {
-            if (keyCode == Keyboard.KEY_ESCAPE) { mc.displayGuiScreen(null); return; }
+            if (keyCode == Keyboard.KEY_ESCAPE) {
+                mc.displayGuiScreen(null);
+                return;
+            }
         }
         super.keyTyped(c, keyCode);
     }
 
     @Override
     protected void mouseClicked(int mx, int my, int btn) {
-        try { super.mouseClicked(mx, my, btn); } catch (Throwable ignored) {}
+        try {
+            super.mouseClicked(mx, my, btn);
+        } catch (Throwable ignored) {}
         if (scriptNameField != null) scriptNameField.mouseClicked(mx, my, btn);
     }
 
@@ -386,8 +410,9 @@ public class GuiWandScriptBind extends GuiScreen {
     public void drawScreen(int mx, int my, float partialTicks) {
         // -------- 阶段 1：完整 GuiSlot.drawScreen（会触发 overlayBackground 画屏幕上下泥土） → 立即精准盖掉【面板范围内】的上下泥土 --------
         if (fileSlot != null) {
-            try { fileSlot.drawScreen(mx, my, partialTicks); }
-            catch (Throwable ignored) {}
+            try {
+                fileSlot.drawScreen(mx, my, partialTicks);
+            } catch (Throwable ignored) {}
             int t = fileSlot.panelTop;
             int b = fileSlot.panelBottom;
             // 只盖 GUI 面板宽度范围内的泥土（不再延伸到整个屏幕宽度），面板左右两侧保持世界原样
@@ -403,8 +428,11 @@ public class GuiWandScriptBind extends GuiScreen {
 
         String targetName;
         if (targetEntity != null) {
-            try { targetName = targetEntity.getCommandSenderName(); }
-            catch (Throwable t) { targetName = "Entity #" + targetEntityId; }
+            try {
+                targetName = targetEntity.getCommandSenderName();
+            } catch (Throwable t) {
+                targetName = "Entity #" + targetEntityId;
+            }
             if (targetName == null || targetName.isEmpty()) targetName = "Entity #" + targetEntityId;
         } else {
             targetName = "Entity #" + targetEntityId + " (missing)";
@@ -427,15 +455,12 @@ public class GuiWandScriptBind extends GuiScreen {
         tipY += 10;
 
         if (legacySaveScriptDir != null && hasScriptsIn(legacySaveScriptDir)) {
-            String migrateTip1 = EnumChatFormatting.GOLD + "提示:" + EnumChatFormatting.RESET
-                + " 检测到存档内旧脚本:";
+            String migrateTip1 = EnumChatFormatting.GOLD + "提示:" + EnumChatFormatting.RESET + " 检测到存档内旧脚本:";
             String p = legacySaveScriptDir.getAbsolutePath();
             if (fontRendererObj.getStringWidth(p) > maxW) {
-                p = p.substring(0, Math.min(18, p.length())) + "..."
-                    + p.substring(Math.max(0, p.length() - 18));
+                p = p.substring(0, Math.min(18, p.length())) + "..." + p.substring(Math.max(0, p.length() - 18));
             }
-            String migrateTip2 = "  " + p + "  "
-                + EnumChatFormatting.GRAY + "→ 移动到全局目录";
+            String migrateTip2 = "  " + p + "  " + EnumChatFormatting.GRAY + "→ 移动到全局目录";
             fontRendererObj.drawString(migrateTip1, guiLeft + 12, tipY, 0xFFFFFF);
             tipY += 9;
             fontRendererObj.drawString(migrateTip2, guiLeft + 12, tipY, 0xFFFFFF);
@@ -451,36 +476,41 @@ public class GuiWandScriptBind extends GuiScreen {
 
         // -------- 阶段 3：只重绘列表「可见内容 + 滚动条」（跳过 overlayBackground 泥土源） --------
         if (fileSlot != null) {
-            try { fileSlot.renderContentOnly(mx, my, partialTicks); }
-            catch (Throwable ignored) {}
+            try {
+                fileSlot.renderContentOnly(mx, my, partialTicks);
+            } catch (Throwable ignored) {}
         }
 
         fontRendererObj.drawString(I18n.format("gui.klaymore.script"), guiLeft + 12, guiTop + 172, 0xA0A0A0);
         if (scriptNameField != null) scriptNameField.drawTextBox();
 
-        if (lastStatus != null && !lastStatus.isEmpty()
-            && System.currentTimeMillis() < statusExpireAt) {
-            drawCenteredString(fontRendererObj, lastStatus,
-                width / 2, guiTop + GUI_HEIGHT + 6, 0xFFFFFFFF);
+        if (lastStatus != null && !lastStatus.isEmpty() && System.currentTimeMillis() < statusExpireAt) {
+            drawCenteredString(fontRendererObj, lastStatus, width / 2, guiTop + GUI_HEIGHT + 6, 0xFFFFFFFF);
         }
 
         super.drawScreen(mx, my, partialTicks);
 
         List<String> hover = null;
-        if (btnBind != null && mx >= btnBind.xPosition && my >= btnBind.yPosition
-            && mx < btnBind.xPosition + btnBind.width && my < btnBind.yPosition + btnBind.height) {
+        if (btnBind != null && mx >= btnBind.xPosition
+            && my >= btnBind.yPosition
+            && mx < btnBind.xPosition + btnBind.width
+            && my < btnBind.yPosition + btnBind.height) {
             hover = new ArrayList<String>();
             hover.add(EnumChatFormatting.AQUA + I18n.format("gui.klaymore.bind.tooltip"));
             hover.add(EnumChatFormatting.GRAY + I18n.format("gui.klaymore.bind.tooltip2"));
-        } else if (btnUnbind != null && mx >= btnUnbind.xPosition && my >= btnUnbind.yPosition
-            && mx < btnUnbind.xPosition + btnUnbind.width && my < btnUnbind.yPosition + btnUnbind.height) {
-            hover = new ArrayList<String>();
-            hover.add(EnumChatFormatting.YELLOW + I18n.format("gui.klaymore.unbind.tooltip"));
-        } else if (btnRefresh != null && mx >= btnRefresh.xPosition && my >= btnRefresh.yPosition
-            && mx < btnRefresh.xPosition + btnRefresh.width && my < btnRefresh.yPosition + btnRefresh.height) {
-            hover = new ArrayList<String>();
-            hover.add(EnumChatFormatting.AQUA + I18n.format("gui.klaymore.refresh.tooltip"));
-        }
+        } else if (btnUnbind != null && mx >= btnUnbind.xPosition
+            && my >= btnUnbind.yPosition
+            && mx < btnUnbind.xPosition + btnUnbind.width
+            && my < btnUnbind.yPosition + btnUnbind.height) {
+                hover = new ArrayList<String>();
+                hover.add(EnumChatFormatting.YELLOW + I18n.format("gui.klaymore.unbind.tooltip"));
+            } else if (btnRefresh != null && mx >= btnRefresh.xPosition
+                && my >= btnRefresh.yPosition
+                && mx < btnRefresh.xPosition + btnRefresh.width
+                && my < btnRefresh.yPosition + btnRefresh.height) {
+                    hover = new ArrayList<String>();
+                    hover.add(EnumChatFormatting.AQUA + I18n.format("gui.klaymore.refresh.tooltip"));
+                }
         if (hover != null && !hover.isEmpty()) drawHoveringText(hover, mx, my, fontRendererObj);
     }
 
@@ -498,7 +528,9 @@ public class GuiWandScriptBind extends GuiScreen {
     }
 
     @Override
-    public boolean doesGuiPauseGame() { return false; }
+    public boolean doesGuiPauseGame() {
+        return false;
+    }
 
     public EntityPlayer getPlayer() {
         return player;
@@ -508,10 +540,12 @@ public class GuiWandScriptBind extends GuiScreen {
     // 内部：列表项数据
     // =================================================================
     private static final class FileEntry {
+
         final boolean isDir;
         final boolean isUpLabel;
         final File file;
         final String label;
+
         FileEntry(boolean isDir, File file, String label) {
             this.isDir = isDir;
             this.file = file;
@@ -575,20 +609,20 @@ public class GuiWandScriptBind extends GuiScreen {
 
             tessellator.startDrawingQuads();
             tessellator.setColorRGBA_I(0, 0);
-            tessellator.addVertexWithUV((double)this.left, (double)(this.top + b0), 0.0D, 0.0D, 1.0D);
-            tessellator.addVertexWithUV((double)this.right, (double)(this.top + b0), 0.0D, 1.0D, 1.0D);
+            tessellator.addVertexWithUV((double) this.left, (double) (this.top + b0), 0.0D, 0.0D, 1.0D);
+            tessellator.addVertexWithUV((double) this.right, (double) (this.top + b0), 0.0D, 1.0D, 1.0D);
             tessellator.setColorRGBA_I(0, 255);
-            tessellator.addVertexWithUV((double)this.right, (double)this.top, 0.0D, 1.0D, 0.0D);
-            tessellator.addVertexWithUV((double)this.left, (double)this.top, 0.0D, 0.0D, 0.0D);
+            tessellator.addVertexWithUV((double) this.right, (double) this.top, 0.0D, 1.0D, 0.0D);
+            tessellator.addVertexWithUV((double) this.left, (double) this.top, 0.0D, 0.0D, 0.0D);
             tessellator.draw();
 
             tessellator.startDrawingQuads();
             tessellator.setColorRGBA_I(0, 255);
-            tessellator.addVertexWithUV((double)this.left, (double)this.bottom, 0.0D, 0.0D, 1.0D);
-            tessellator.addVertexWithUV((double)this.right, (double)this.bottom, 0.0D, 1.0D, 1.0D);
+            tessellator.addVertexWithUV((double) this.left, (double) this.bottom, 0.0D, 0.0D, 1.0D);
+            tessellator.addVertexWithUV((double) this.right, (double) this.bottom, 0.0D, 1.0D, 1.0D);
             tessellator.setColorRGBA_I(0, 0);
-            tessellator.addVertexWithUV((double)this.right, (double)(this.bottom - b0), 0.0D, 1.0D, 0.0D);
-            tessellator.addVertexWithUV((double)this.left, (double)(this.bottom - b0), 0.0D, 0.0D, 0.0D);
+            tessellator.addVertexWithUV((double) this.right, (double) (this.bottom - b0), 0.0D, 1.0D, 0.0D);
+            tessellator.addVertexWithUV((double) this.left, (double) (this.bottom - b0), 0.0D, 0.0D, 0.0D);
             tessellator.draw();
 
             int maxScroll = this.func_148135_f();
@@ -602,26 +636,26 @@ public class GuiWandScriptBind extends GuiScreen {
 
                 tessellator.startDrawingQuads();
                 tessellator.setColorRGBA_I(0, 255);
-                tessellator.addVertexWithUV((double)l, (double)this.bottom, 0.0D, 0.0D, 1.0D);
-                tessellator.addVertexWithUV((double)i1, (double)this.bottom, 0.0D, 1.0D, 1.0D);
-                tessellator.addVertexWithUV((double)i1, (double)this.top, 0.0D, 1.0D, 0.0D);
-                tessellator.addVertexWithUV((double)l, (double)this.top, 0.0D, 0.0D, 0.0D);
+                tessellator.addVertexWithUV((double) l, (double) this.bottom, 0.0D, 0.0D, 1.0D);
+                tessellator.addVertexWithUV((double) i1, (double) this.bottom, 0.0D, 1.0D, 1.0D);
+                tessellator.addVertexWithUV((double) i1, (double) this.top, 0.0D, 1.0D, 0.0D);
+                tessellator.addVertexWithUV((double) l, (double) this.top, 0.0D, 0.0D, 0.0D);
                 tessellator.draw();
 
                 tessellator.startDrawingQuads();
                 tessellator.setColorRGBA_I(8421504, 255);
-                tessellator.addVertexWithUV((double)l, (double)(thumbY + thumbHeight), 0.0D, 0.0D, 1.0D);
-                tessellator.addVertexWithUV((double)i1, (double)(thumbY + thumbHeight), 0.0D, 1.0D, 1.0D);
-                tessellator.addVertexWithUV((double)i1, (double)thumbY, 0.0D, 1.0D, 0.0D);
-                tessellator.addVertexWithUV((double)l, (double)thumbY, 0.0D, 0.0D, 0.0D);
+                tessellator.addVertexWithUV((double) l, (double) (thumbY + thumbHeight), 0.0D, 0.0D, 1.0D);
+                tessellator.addVertexWithUV((double) i1, (double) (thumbY + thumbHeight), 0.0D, 1.0D, 1.0D);
+                tessellator.addVertexWithUV((double) i1, (double) thumbY, 0.0D, 1.0D, 0.0D);
+                tessellator.addVertexWithUV((double) l, (double) thumbY, 0.0D, 0.0D, 0.0D);
                 tessellator.draw();
 
                 tessellator.startDrawingQuads();
                 tessellator.setColorRGBA_I(12632256, 255);
-                tessellator.addVertexWithUV((double)l, (double)(thumbY + thumbHeight - 1), 0.0D, 0.0D, 1.0D);
-                tessellator.addVertexWithUV((double)(i1 - 1), (double)(thumbY + thumbHeight - 1), 0.0D, 1.0D, 1.0D);
-                tessellator.addVertexWithUV((double)(i1 - 1), (double)thumbY, 0.0D, 1.0D, 0.0D);
-                tessellator.addVertexWithUV((double)l, (double)thumbY, 0.0D, 0.0D, 0.0D);
+                tessellator.addVertexWithUV((double) l, (double) (thumbY + thumbHeight - 1), 0.0D, 0.0D, 1.0D);
+                tessellator.addVertexWithUV((double) (i1 - 1), (double) (thumbY + thumbHeight - 1), 0.0D, 1.0D, 1.0D);
+                tessellator.addVertexWithUV((double) (i1 - 1), (double) thumbY, 0.0D, 1.0D, 0.0D);
+                tessellator.addVertexWithUV((double) l, (double) thumbY, 0.0D, 0.0D, 0.0D);
                 tessellator.draw();
             }
 
@@ -633,7 +667,9 @@ public class GuiWandScriptBind extends GuiScreen {
         }
 
         @Override
-        protected int getSize() { return currentEntries.size(); }
+        protected int getSize() {
+            return currentEntries.size();
+        }
 
         @Override
         protected void elementClicked(int idx, boolean doubleClick, int mx, int my) {
@@ -642,11 +678,12 @@ public class GuiWandScriptBind extends GuiScreen {
         }
 
         @Override
-        protected boolean isSelected(int idx) { return idx == selectedIndex; }
+        protected boolean isSelected(int idx) {
+            return idx == selectedIndex;
+        }
 
         @Override
-        protected void drawBackground() {
-        }
+        protected void drawBackground() {}
 
         @Override
         protected void drawContainerBackground(Tessellator tessellator) {
@@ -676,17 +713,15 @@ public class GuiWandScriptBind extends GuiScreen {
                 text = fontRendererObj.trimStringToWidth(text, max - 10) + "...";
             }
             if (isSelected(idx)) {
-                drawRect(panelLeft + 2, y - 2, panelLeft + panelWidth - 8,
-                    y + entryHeight - 2, 0xFF2E6DDA);
+                drawRect(panelLeft + 2, y - 2, panelLeft + panelWidth - 8, y + entryHeight - 2, 0xFF2E6DDA);
             }
-            GuiWandScriptBind.this.drawString(fontRendererObj, text,
-                panelLeft + 6, y + 2, color);
+            GuiWandScriptBind.this.drawString(fontRendererObj, text, panelLeft + 6, y + 2, color);
 
             if (entry.file != null && !entry.isDir && !entry.isUpLabel) {
                 String sz = humanSize(entry.file.length());
                 int w = fontRendererObj.getStringWidth(sz);
-                GuiWandScriptBind.this.drawString(fontRendererObj, sz,
-                    panelLeft + panelWidth - 16 - w, y + 2, 0x909090);
+                GuiWandScriptBind.this
+                    .drawString(fontRendererObj, sz, panelLeft + panelWidth - 16 - w, y + 2, 0x909090);
             }
         }
     }

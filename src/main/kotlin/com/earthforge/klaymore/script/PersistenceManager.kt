@@ -52,7 +52,8 @@ object PersistenceManager {
     val prefix = key.substringBefore(':')
     val adapter = prefixToAdapter[prefix] ?: return null
     val rest = key.substringAfter(':', "")
-    @Suppress("UNCHECKED_CAST") return (adapter as PersistenceAdapter<Any>).resolve(rest)
+    @Suppress("UNCHECKED_CAST")
+    return (adapter as PersistenceAdapter<Any>).resolve(rest)
   }
 
   private fun classDistance(derived: Class<*>, base: Class<*>): Int {
@@ -118,6 +119,9 @@ class DummyAdapter : PersistenceAdapter<Dummy> {
   override fun resolve(key: String): Dummy {
     if ("root" == key) {
       return GlobalRoot.target
+    }
+    if ("client_root" == key) {
+      return GlobalRoot.clientTarget
     }
     return Dummy(key)
   }

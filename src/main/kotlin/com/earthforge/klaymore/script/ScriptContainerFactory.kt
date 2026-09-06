@@ -17,15 +17,16 @@ object ScriptContainerFactory {
       scriptFile: File,
       target: Any,
       parentContainer: ScriptContainer? = null,
-      initialPersistentData: Map<String, *>? = null
+      initialPersistentData: Map<String, *>? = null,
+      side: ScriptSide = ScriptSide.fromPath(scriptFile)
   ): ScriptContainer? {
     val compiled = ScriptLoader.loadScript(scriptFile) ?: return null
-    return finishMount(compiled, scriptName, target, parentContainer, initialPersistentData)
+    return finishMount(compiled, scriptName, target, parentContainer, initialPersistentData, side)
   }
 
   /**
-   * 异步版本：编译走后台线程，编译完成后回主线程完成实例化+注入+注册，最后通过 callback 返回
-   * callback 永远在主线程调用，可以安全操作 Minecraft 世界 / 给玩家发消息等
+   * 异步版本：编译走后台线程，编译完成后回主线程完成实例化+注入+注册，最后通过 callback 返回 callback 永远在主线程调用，可以安全操作 Minecraft 世界 /
+   * 给玩家发消息等
    *
    * @param callback 接收挂载结果：成功 → ScriptContainer；失败 → null（编译错误或实例化错误）
    */
@@ -51,7 +52,8 @@ object ScriptContainerFactory {
       initialPersistentData: Map<String, *>?,
       callback: Consumer<ScriptContainer?>
   ) {
-    createAndMountAsync(scriptName, scriptFile, target, parentContainer, initialPersistentData) { container ->
+    createAndMountAsync(scriptName, scriptFile, target, parentContainer, initialPersistentData) {
+        container ->
       callback.accept(container)
     }
   }
@@ -64,6 +66,7 @@ object ScriptContainerFactory {
       target: Any,
       parentContainer: ScriptContainer? = null,
       initialPersistentData: Map<String, *>? = null,
+      side: ScriptSide = ScriptSide.fromPath(scriptFile),
       callback: (ScriptContainer?) -> Unit
   ) {
     ScriptLoader.loadScriptAsync(scriptFile) { compiled ->
@@ -71,7 +74,8 @@ object ScriptContainerFactory {
         callback(null)
         return@loadScriptAsync
       }
-      val container = finishMount(compiled, scriptName, target, parentContainer, initialPersistentData)
+      val container =
+          finishMount(compiled, scriptName, target, parentContainer, initialPersistentData, side)
       callback(container)
     }
   }
@@ -82,7 +86,8 @@ object ScriptContainerFactory {
       scriptName: String,
       target: Any,
       parentContainer: ScriptContainer?,
-      initialPersistentData: Map<String, *>?
+      initialPersistentData: Map<String, *>?,
+      side: ScriptSide
   ): ScriptContainer? {
     val instance = instantiateScript(compiled, scriptName) ?: return null
     val effectiveTarget = resolveEffectiveTarget(instance, target, scriptName)
@@ -92,7 +97,8 @@ object ScriptContainerFactory {
             compiledScript = compiled,
             target = effectiveTarget,
             parent = parentContainer,
-            scriptInstance = instance)
+            scriptInstance = instance,
+            side = side)
 
     parentContainer?.addChild(container)
 
@@ -106,7 +112,7 @@ object ScriptContainerFactory {
 
     ScriptInjectionUtils.injectConventions(
         instance, effectiveTarget, parentContainer?.getTarget(), container)
-    ScriptInjectionUtils.registerSubscribers(instance, effectiveTarget)
+    ScriptInjectionUtils.registerSubscribers(instance, effectiveTarget, side)
 
     ScriptBindingManager.register(container)
 
@@ -187,8 +193,7 @@ object ScriptContainerFactory {
     }
   }
 
-  private val CONVENTION_METHOD_NAMES =
-      setOf("bindTarget", "bindContainer", "bindParent")
+  private val CONVENTION_METHOD_NAMES = setOf("bindTarget", "bindContainer", "bindParent")
 
   private fun looksLikeScriptImpl(obj: Any): Boolean {
     val methods = obj.javaClass.declaredMethods
@@ -197,10 +202,7 @@ object ScriptContainerFactory {
     // 有 @Subscribe 方法 → 是脚本
     return try {
       val subscribeAnno =
-          Class.forName(
-              "com.earthforge.klaymore.script.Subscribe",
-              true,
-              Launch.classLoader)
+          Class.forName("com.earthforge.klaymore.script.Subscribe", true, Launch.classLoader)
       methods.any { m -> m.annotations.any { it.annotationClass.java == subscribeAnno } }
     } catch (_: Throwable) {
       false
@@ -224,12 +226,14 @@ object ScriptContainerFactory {
               }
           val mods = instanceField.modifiers
           if (!java.lang.reflect.Modifier.isStatic(mods) ||
-              !java.lang.reflect.Modifier.isFinal(mods)) continue
+              !java.lang.reflect.Modifier.isFinal(mods))
+              continue
           instanceField.isAccessible = true
           val obj = instanceField.get(null) ?: continue
           if (looksLikeScriptImpl(obj)) {
-            println("[Klaymore ScriptFactory] Detected Kotlin 'object' wrapper in "
-                + "$scriptName, using ${declaredClass.simpleName}.INSTANCE as actual script instance")
+            println(
+                "[Klaymore ScriptFactory] Detected Kotlin 'object' wrapper in " +
+                    "$scriptName, using ${declaredClass.simpleName}.INSTANCE as actual script instance")
             return obj
           }
         } catch (_: Throwable) {
@@ -245,8 +249,6 @@ object ScriptContainerFactory {
   }
 
   @JvmStatic
-  fun instantiateScriptForReload(
-      compiledScript: CompiledScript,
-      scriptName: String
-  ): Any? = instantiateScript(compiledScript, scriptName)
+  fun instantiateScriptForReload(compiledScript: CompiledScript, scriptName: String): Any? =
+      instantiateScript(compiledScript, scriptName)
 }

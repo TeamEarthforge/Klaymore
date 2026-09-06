@@ -15,8 +15,7 @@ object ScriptBindingManager {
     containers.remove(container)
   }
 
-  @JvmStatic
-  fun getContainers(): List<ScriptContainer> = containers.toList()
+  @JvmStatic fun getContainers(): List<ScriptContainer> = containers.toList()
 
   @JvmStatic
   fun findByScriptName(scriptName: String): List<ScriptContainer> =

@@ -1,5 +1,5 @@
-import org.gradle.api.tasks.bundling.AbstractArchiveTask
 import groovy.lang.Closure
+import org.gradle.api.tasks.bundling.AbstractArchiveTask
 
 plugins {
   id("com.gtnewhorizons.gtnhconvention")
@@ -25,55 +25,64 @@ repositories { mavenCentral() }
 dependencies {}
 
 afterEvaluate {
-  tasks.matching {
-    it.name.endsWith("ShadowJar") || it.name == "shadowJar"
-  }.configureEach eachTask@{
-    val task = this@eachTask as AbstractArchiveTask
-    println("[Klaymore] 配置 shadow 任务: ${task.name}")
-    println("[Klaymore]   模式：【不 relocate kotlin】，仅 exclude 打包避免重复类。")
+  tasks
+      .matching { it.name.endsWith("ShadowJar") || it.name == "shadowJar" }
+      .configureEach eachTask@{
+        val task = this@eachTask as AbstractArchiveTask
+        println("[Klaymore] 配置 shadow 任务: ${task.name}")
+        println("[Klaymore]   模式：【不 relocate kotlin】，仅 exclude 打包避免重复类。")
 
-    // ---------- 只对几个小的第三方包做 relocate（它们和 kotlin 无关，也不需要改资源路径） ----------
-    //   kotlin / kotlinx / org.jetbrains.kotlin / org.jetbrains.annotations 全部不再 relocate！
-    val groovyTask = task as groovy.lang.GroovyObject
-    val emptyClosure = object : Closure<Any>(task) {
-      @Suppress("unused") fun doCall() {}
-    }
-    val relocate = fun(pattern: String, dest: String) {
-      try {
-        groovyTask.invokeMethod("relocate", arrayOf(pattern, dest, emptyClosure))
-        println("[Klaymore]   relocate: $pattern -> $dest")
-      } catch (_: Exception) {
-        try {
-          groovyTask.invokeMethod("relocate", arrayOf(pattern, dest))
-          println("[Klaymore]   relocate: $pattern -> $dest (双参数版)")
-        } catch (ex: Exception) {
-          println("[Klaymore]   警告: 无法添加 relocate 规则 $pattern: ${ex.message}")
-        }
+        // ---------- 只对几个小的第三方包做 relocate（它们和 kotlin 无关，也不需要改资源路径） ----------
+        //   kotlin / kotlinx / org.jetbrains.kotlin / org.jetbrains.annotations 全部不再 relocate！
+        val groovyTask = task as groovy.lang.GroovyObject
+        val emptyClosure =
+            object : Closure<Any>(task) {
+              @Suppress("unused") fun doCall() {}
+            }
+        val relocate =
+            fun(pattern: String, dest: String) {
+              try {
+                groovyTask.invokeMethod("relocate", arrayOf(pattern, dest, emptyClosure))
+                println("[Klaymore]   relocate: $pattern -> $dest")
+              } catch (_: Exception) {
+                try {
+                  groovyTask.invokeMethod("relocate", arrayOf(pattern, dest))
+                  println("[Klaymore]   relocate: $pattern -> $dest (双参数版)")
+                } catch (ex: Exception) {
+                  println("[Klaymore]   警告: 无法添加 relocate 规则 $pattern: ${ex.message}")
+                }
+              }
+            }
+
+        // 只剩这几个可能和其他 mods 冲突的小工具包做 relocate（不重要，出错影响小）
+        relocate("org.codehaus", "com.earthforge.klaymore.shadow.org.codehaus")
+        relocate("org.jdom", "com.earthforge.klaymore.shadow.org.jdom")
+
+        // ---------- 打包时排除所有 Kotlin 相关依赖的 class 文件！----------
+        //   kotlin-stdlib / kotlin-compiler / kotlinx-coroutines 等 jar 的所有内容，
+        //   都不在主 JAR 里出现，由 klaymore-runtime.jar 统一提供。
+        //   这样主 JAR 大小只有几百 KB，秒级构建。
+        task.exclude("kotlin/**")
+        task.exclude("kotlinx/**")
+        task.exclude("org/jetbrains/kotlin/**")
+        task.exclude("org/jetbrains/annotations/**")
+        task.exclude("org/intellij/lang/annotations/**")
+        task.exclude("org/codehaus/**")
+        task.exclude("org/jdom/**")
+
+        // META-INF 里也清理掉 kotlin 相关文件（如果有的话），避免冲突
+        task.exclude("META-INF/kotlin/**")
+        task.exclude("META-INF/*.kotlin_metadata")
+        task.exclude("META-INF/kotlin-stdlib*.kotlin_module")
+        task.exclude("META-INF/kotlinx-coroutines*.kotlin_module")
       }
-    }
+}
 
-    // 只剩这几个可能和其他 mods 冲突的小工具包做 relocate（不重要，出错影响小）
-    relocate("org.codehaus", "com.earthforge.klaymore.shadow.org.codehaus")
-    relocate("org.jdom", "com.earthforge.klaymore.shadow.org.jdom")
-
-    // ---------- 打包时排除所有 Kotlin 相关依赖的 class 文件！----------
-    //   kotlin-stdlib / kotlin-compiler / kotlinx-coroutines 等 jar 的所有内容，
-    //   都不在主 JAR 里出现，由 klaymore-runtime.jar 统一提供。
-    //   这样主 JAR 大小只有几百 KB，秒级构建。
-    task.exclude("kotlin/**")
-    task.exclude("kotlinx/**")
-    task.exclude("org/jetbrains/kotlin/**")
-    task.exclude("org/jetbrains/annotations/**")
-    task.exclude("org/intellij/lang/annotations/**")
-    task.exclude("org/codehaus/**")
-    task.exclude("org/jdom/**")
-
-    // META-INF 里也清理掉 kotlin 相关文件（如果有的话），避免冲突
-    task.exclude("META-INF/kotlin/**")
-    task.exclude("META-INF/*.kotlin_metadata")
-    task.exclude("META-INF/kotlin-stdlib*.kotlin_module")
-    task.exclude("META-INF/kotlinx-coroutines*.kotlin_module")
-  }
+afterEvaluate {
+  // 修复 Gradle 9 严格模式下 reobfJar 与 script-runtime:copyRuntime 的隐式依赖告警
+  tasks
+      .matching { it.name == "reobfJar" }
+      .configureEach { dependsOn(":script-runtime:copyRuntime") }
 }
 
 afterEvaluate {

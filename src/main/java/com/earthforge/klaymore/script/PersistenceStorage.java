@@ -1,23 +1,5 @@
 package com.earthforge.klaymore.script;
 
-import com.earthforge.klaymore.MinecraftDirectory;
-import com.google.gson.Gson;
-import com.google.gson.GsonBuilder;
-import com.google.gson.reflect.TypeToken;
-
-import cpw.mods.fml.common.FMLCommonHandler;
-import cpw.mods.fml.common.eventhandler.SubscribeEvent;
-import cpw.mods.fml.common.gameevent.PlayerEvent;
-
-import kotlin.script.experimental.api.CompiledScript;
-import net.minecraft.entity.Entity;
-import net.minecraft.entity.player.EntityPlayer;
-import net.minecraft.server.MinecraftServer;
-import net.minecraft.world.World;
-import net.minecraft.world.storage.ISaveHandler;
-import net.minecraftforge.common.MinecraftForge;
-import net.minecraftforge.event.entity.EntityJoinWorldEvent;
-
 import java.io.File;
 import java.io.FileReader;
 import java.io.FileWriter;
@@ -33,48 +15,66 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
 
+import net.minecraft.entity.Entity;
+import net.minecraft.entity.player.EntityPlayer;
+import net.minecraft.server.MinecraftServer;
+import net.minecraft.world.World;
+import net.minecraft.world.storage.ISaveHandler;
+import net.minecraftforge.common.MinecraftForge;
+import net.minecraftforge.event.entity.EntityJoinWorldEvent;
+
+import com.earthforge.klaymore.MinecraftDirectory;
+import com.google.gson.Gson;
+import com.google.gson.GsonBuilder;
+import com.google.gson.reflect.TypeToken;
+
+import cpw.mods.fml.common.FMLCommonHandler;
+import cpw.mods.fml.common.eventhandler.SubscribeEvent;
+import cpw.mods.fml.common.gameevent.PlayerEvent;
+import kotlin.script.experimental.api.CompiledScript;
+
 /**
  * PersistenceStorage
  * ------------------
  * 脚本绑定持久化存储。
  *
  * ┌──────────────────────────────────────────────────────────────────┐
- * │                        目录策略（2026-08-30 调整）              │
+ * │ 目录策略（2026-08-30 调整） │
  * ├──────────────────────┬───────────────────────────────────────────┤
- * │  脚本文件 (.kts)      │ 全局共享，所有世界复用                    │
- * │                      │ → .minecraft/klaymore/  (client)          │
- * │                      │ → <server_root>/klaymore/ (dedicated)     │
- * │                      │    （MinecraftDirectory.getGlobalScriptDirectory())│
+ * │ 脚本文件 (.kts) │ 全局共享，所有世界复用 │
+ * │ │ → .minecraft/klaymore/ (client) │
+ * │ │ → <server_root>/klaymore/ (dedicated) │
+ * │ │ （MinecraftDirectory.getGlobalScriptDirectory())│
  * ├──────────────────────┼───────────────────────────────────────────┤
- * │  bindings.json       │ 每个存档独立（绑定关系是世界私有数据）    │
- * │                      │ → <SaveDir>/klaymore/bindings.json        │
- * │                      │    （例如 saves/New World/klaymore/）     │
+ * │ bindings.json │ 每个存档独立（绑定关系是世界私有数据） │
+ * │ │ → <SaveDir>/klaymore/bindings.json │
+ * │ │ （例如 saves/New World/klaymore/） │
  * ├──────────────────────┼───────────────────────────────────────────┤
- * │  向后兼容：脚本查找  │ 若全局目录未找到该脚本，回退尝试旧位置：   │
- * │                      │ → <SaveDir>/klaymore/<脚本名>.kts         │
+ * │ 向后兼容：脚本查找 │ 若全局目录未找到该脚本，回退尝试旧位置： │
+ * │ │ → <SaveDir>/klaymore/<脚本名>.kts │
  * └──────────────────────┴───────────────────────────────────────────┘
  *
  * 【为什么脚本放全局】
- *   - 编译时机前置：Mod 初始化阶段（PostInitializationEvent）就能扫描
- *     并丢给后台线程异步预编译所有 .kts，玩家点击「进入世界」之前
- *     就已经全部编译完成 → 进地图时 compileCache 全命中，挂载瞬间完成。
- *   - 避免每个存档复制同一份脚本。
- *   - 专用服管理员改一次脚本，所有世界同时生效。
+ * - 编译时机前置：Mod 初始化阶段（PostInitializationEvent）就能扫描
+ * 并丢给后台线程异步预编译所有 .kts，玩家点击「进入世界」之前
+ * 就已经全部编译完成 → 进地图时 compileCache 全命中，挂载瞬间完成。
+ * - 避免每个存档复制同一份脚本。
+ * - 专用服管理员改一次脚本，所有世界同时生效。
  *
  * 【为什么 bindings.json 仍在存档内】
- *   - 绑定是「世界 -> 实体 -> 脚本」的映射，不同世界 NPC UUID 不同。
- *   - A 世界的某个 NPC 绑定了 Boss.kts，不应该自动跑到 B 世界。
+ * - 绑定是「世界 -> 实体 -> 脚本」的映射，不同世界 NPC UUID 不同。
+ * - A 世界的某个 NPC 绑定了 Boss.kts，不应该自动跑到 B 世界。
  *
  * 【为什么是 Java 而不是 Kotlin】
- *   Minecraft 1.7.10 Forge 使用 LaunchClassLoader 加载 mods 目录下的 JAR。
- *   Kotlin 的 object / inline / stdlib 类会在类加载早期阶段触发
- *   kotlin.jvm.internal.Intrinsics 等类加载；而这些类存在于 klaymore-runtime.jar
- *   （shadow 打进去的 stdlib），如果扫描阶段触发 ASM 5 Multi-Release JAR bug，
- *   整个 runtime jar 被 FML ignore，随后任何 Kotlin 侧调用都会 NoClassDefFoundError。
+ * Minecraft 1.7.10 Forge 使用 LaunchClassLoader 加载 mods 目录下的 JAR。
+ * Kotlin 的 object / inline / stdlib 类会在类加载早期阶段触发
+ * kotlin.jvm.internal.Intrinsics 等类加载；而这些类存在于 klaymore-runtime.jar
+ * （shadow 打进去的 stdlib），如果扫描阶段触发 ASM 5 Multi-Release JAR bug，
+ * 整个 runtime jar 被 FML ignore，随后任何 Kotlin 侧调用都会 NoClassDefFoundError。
  *
- *   本类仅依赖 Forge/Minecraft 公开 API + Gson，不引用任何 Kotlin 侧实现
- *   （除了 CompiledScript 类型名，loadScriptAsync 必须传入的 Consumer 泛型边界而已）
- *   确保即便 Kotlin runtime 出问题，也不阻断启动流程。
+ * 本类仅依赖 Forge/Minecraft 公开 API + Gson，不引用任何 Kotlin 侧实现
+ * （除了 CompiledScript 类型名，loadScriptAsync 必须传入的 Consumer 泛型边界而已）
+ * 确保即便 Kotlin runtime 出问题，也不阻断启动流程。
  */
 public final class PersistenceStorage {
 
@@ -84,7 +84,8 @@ public final class PersistenceStorage {
     /** 已经提交预编译的脚本文件名集合（避免 PostInit + serverStarting 重复编译） */
     private static final Set<String> PRECOMPILE_SUBMITTED = Collections.synchronizedSet(new HashSet<String>());
 
-    private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
+    private static final Gson GSON = new GsonBuilder().setPrettyPrinting()
+        .create();
     private static final Type BINDING_MAP_TYPE = new TypeToken<Map<String, BindingEntry>>() {}.getType();
 
     /** 从磁盘加载的完整缓存（含尚未 resolve 的离线玩家条目，关闭时完整写回） */
@@ -116,7 +117,9 @@ public final class PersistenceStorage {
     public static synchronized void initialize() {
         if (!eventBusRegistered) {
             try {
-                FMLCommonHandler.instance().bus().register(EventBusListener.INSTANCE);
+                FMLCommonHandler.instance()
+                    .bus()
+                    .register(EventBusListener.INSTANCE);
                 MinecraftForge.EVENT_BUS.register(EventBusListener.INSTANCE);
                 eventBusRegistered = true;
             } catch (Throwable t) {
@@ -153,30 +156,43 @@ public final class PersistenceStorage {
 
     /**
      * 按「脚本文件名」解析真实文件路径。
-     *   优先级 1：全局脚本目录 → .minecraft/klaymore/<name>
-     *   优先级 2：fallback 存档旧目录 → <SaveDir>/klaymore/<name>
-     *   都找不到 → 返回一个在全局目录下的 File（让上层报 missing，同时提示应该放哪里）
+     * 优先级 1：全局脚本目录直接 → .minecraft/klaymore/<name> （兼容旧版）
+     * 优先级 2：server/ 子目录 → .minecraft/klaymore/server/<name>
+     * 优先级 3：client/ 子目录 → .minecraft/klaymore/client/<name>
+     * 优先级 4：fallback 存档旧目录 → <SaveDir>/klaymore/<name>
+     * 都找不到 → 返回一个在 server/ 目录下的 File（让上层报 missing，同时提示应该放哪里）
      */
     public static File resolveScriptFile(String scriptName) {
         if (scriptName == null) return null;
-        // 1. 全局
         File globalDir = getScriptDirectory();
+        // 1. 全局脚本目录直接（兼容旧版 Root.kts 等）
         if (globalDir != null) {
             File f = new File(globalDir, scriptName);
             if (f.exists() && f.isFile()) return f;
         }
-        // 2. 存档内旧位置（兼容）
+        // 2. server/ 子目录
+        if (globalDir != null) {
+            File f = new File(new File(globalDir, "server"), scriptName);
+            if (f.exists() && f.isFile()) return f;
+        }
+        // 3. client/ 子目录
+        if (globalDir != null) {
+            File f = new File(new File(globalDir, "client"), scriptName);
+            if (f.exists() && f.isFile()) return f;
+        }
+        // 4. 存档内旧位置（兼容）
         File legacyDir = getLegacySaveScriptDirectory();
         if (legacyDir != null) {
             File f2 = new File(legacyDir, scriptName);
             if (f2.exists() && f2.isFile()) {
-                System.out.println("[Klaymore PersistenceStorage] resolved script from legacy save location: "
-                    + f2.getAbsolutePath() + " (建议迁移到全局脚本目录)");
+                System.out.println(
+                    "[Klaymore PersistenceStorage] resolved script from legacy save location: " + f2.getAbsolutePath()
+                        + " (建议迁移到全局脚本目录)");
                 return f2;
             }
         }
-        // 3. 都没找到 → 返回全局目录下的 File（让统一的 "file missing" 提示带正确路径）
-        return new File(globalDir, scriptName);
+        // 5. 都没找到 → 返回 server/ 目录下的 File（提示正确位置）
+        return globalDir != null ? new File(new File(globalDir, "server"), scriptName) : new File(scriptName);
     }
 
     // ---------- 预编译：把所有脚本提前编译好，进世界时 0 等待 ----------
@@ -186,57 +202,65 @@ public final class PersistenceStorage {
      * 可以多次安全调用（内部按文件名去重）。
      *
      * 建议调用时机：
-     *   ① FMLPostInitializationEvent  → Mod 初始化刚结束，开始后台预热（玩家可能还在主菜单）
-     *   ② FMLServerStartingEvent  → 进入世界前的最后一个时机，哪怕 PostInit 没跑也能补上
-     *   ③ /klaymore reload 时 invalidateCache 后 → 同上
+     * ① FMLPostInitializationEvent → Mod 初始化刚结束，开始后台预热（玩家可能还在主菜单）
+     * ② FMLServerStartingEvent → 进入世界前的最后一个时机，哪怕 PostInit 没跑也能补上
+     * ③ /klaymore reload 时 invalidateCache 后 → 同上
      */
     public static void precompileAllScriptsNow() {
         File scriptDir = getScriptDirectory();
         if (scriptDir == null || !scriptDir.isDirectory()) return;
-        File[] files = scriptDir.listFiles();
-        if (files == null || files.length == 0) return;
 
         final List<File> toCompile = new ArrayList<File>();
-        for (File f : files) {
-            if (f == null || !f.isFile()) continue;
-            if (!f.getName().toLowerCase().endsWith(".kts")) continue;
-            String canonicalKey;
-            try { canonicalKey = f.getCanonicalPath(); }
-            catch (Throwable t) { canonicalKey = f.getAbsolutePath(); }
-            if (!PRECOMPILE_SUBMITTED.add(canonicalKey)) continue; // 去重
-            toCompile.add(f);
-        }
+        // 扫描全局脚本目录本身（兼容旧版直接放根目录的 .kts）
+        collectKtsFiles(scriptDir, toCompile, false);
+        // 扫描 server/ 和 client/ 子目录
+        File serverDir = new File(scriptDir, "server");
+        File clientDir = new File(scriptDir, "client");
+        collectKtsFiles(serverDir, toCompile, true);
+        collectKtsFiles(clientDir, toCompile, true);
+
         if (toCompile.isEmpty()) return;
 
         final AtomicInteger remain = new AtomicInteger(toCompile.size());
-        System.out.println("[Klaymore PersistenceStorage] Submit background pre-compile: "
-            + toCompile.size() + " scripts in " + scriptDir.getAbsolutePath());
+        System.out.println(
+            "[Klaymore PersistenceStorage] Submit background pre-compile: " + toCompile.size()
+                + " scripts in "
+                + scriptDir.getAbsolutePath());
 
         for (final File f : toCompile) {
             try {
                 ScriptLoader.loadScriptAsync(f, new java.util.function.Consumer<CompiledScript>() {
+
                     @Override
                     public void accept(CompiledScript compiled) {
                         int left = remain.decrementAndGet();
                         if (compiled != null) {
-                            System.out.println("[Klaymore PersistenceStorage] pre-compile OK: "
-                                + f.getName() + " (remaining=" + left + ")");
+                            System.out.println(
+                                "[Klaymore PersistenceStorage] pre-compile OK: " + f.getName()
+                                    + " (remaining="
+                                    + left
+                                    + ")");
                         } else {
                             String lastErr = ScriptErrorReporter.getLastError();
-                            System.err.println("[Klaymore PersistenceStorage] pre-compile FAILED: "
-                                + f.getName()
-                                + (lastErr != null ? " -> " + lastErr : "")
-                                + " (remaining=" + left + ")");
+                            System.err.println(
+                                "[Klaymore PersistenceStorage] pre-compile FAILED: " + f.getName()
+                                    + (lastErr != null ? " -> " + lastErr : "")
+                                    + " (remaining="
+                                    + left
+                                    + ")");
                         }
                         if (left == 0) {
-                            System.out.println("[Klaymore PersistenceStorage] All script pre-compile tasks dispatched.");
+                            System.out
+                                .println("[Klaymore PersistenceStorage] All script pre-compile tasks dispatched.");
                         }
                     }
                 });
             } catch (Throwable t) {
                 remain.decrementAndGet();
-                System.err.println("[Klaymore PersistenceStorage] WARN: submit pre-compile for "
-                    + f.getName() + " failed: " + t.getMessage());
+                System.err.println(
+                    "[Klaymore PersistenceStorage] WARN: submit pre-compile for " + f.getName()
+                        + " failed: "
+                        + t.getMessage());
             }
         }
 
@@ -246,14 +270,21 @@ public final class PersistenceStorage {
             File[] legacyFiles = legacy.listFiles();
             if (legacyFiles != null) {
                 for (final File f : legacyFiles) {
-                    if (!f.isFile() || !f.getName().toLowerCase().endsWith(".kts")) continue;
+                    if (!f.isFile() || !f.getName()
+                        .toLowerCase()
+                        .endsWith(".kts")) continue;
                     String canonicalKey;
-                    try { canonicalKey = f.getCanonicalPath(); }
-                    catch (Throwable t) { canonicalKey = f.getAbsolutePath(); }
+                    try {
+                        canonicalKey = f.getCanonicalPath();
+                    } catch (Throwable t) {
+                        canonicalKey = f.getAbsolutePath();
+                    }
                     if (!PRECOMPILE_SUBMITTED.add(canonicalKey)) continue;
                     try {
                         ScriptLoader.loadScriptAsync(f, new java.util.function.Consumer<CompiledScript>() {
-                            @Override public void accept(CompiledScript c) { /* 只编译不报错提示 */ }
+
+                            @Override
+                            public void accept(CompiledScript c) { /* 只编译不报错提示 */ }
                         });
                     } catch (Throwable ignore) {}
                 }
@@ -266,6 +297,33 @@ public final class PersistenceStorage {
         PRECOMPILE_SUBMITTED.clear();
     }
 
+    /**
+     * 收集目录下的 .kts 文件加入 toCompile（自动去重）。
+     * 
+     * @param dir       要扫描的目录
+     * @param toCompile 收集结果列表
+     * @param mustExist true 时目录不存在直接跳过；false 时目录不存在也跳过（行为一致，仅语义区分）
+     */
+    private static void collectKtsFiles(File dir, List<File> toCompile, boolean mustExist) {
+        if (dir == null || !dir.isDirectory()) return;
+        File[] files = dir.listFiles();
+        if (files == null) return;
+        for (File f : files) {
+            if (f == null || !f.isFile()) continue;
+            if (!f.getName()
+                .toLowerCase()
+                .endsWith(".kts")) continue;
+            String canonicalKey;
+            try {
+                canonicalKey = f.getCanonicalPath();
+            } catch (Throwable t) {
+                canonicalKey = f.getAbsolutePath();
+            }
+            if (!PRECOMPILE_SUBMITTED.add(canonicalKey)) continue;
+            toCompile.add(f);
+        }
+    }
+
     public static synchronized void saveAll() {
         File bindingsFile = getBindingsFileSafe();
         if (bindingsFile == null) return;
@@ -275,16 +333,23 @@ public final class PersistenceStorage {
         List<ScriptContainer> containers = safeGetContainers();
         for (ScriptContainer container : containers) {
             Object target = null;
-            try { target = container.getTarget(); } catch (Throwable ignored) {}
+            try {
+                target = container.getTarget();
+            } catch (Throwable ignored) {}
             if (target == null) continue;
 
             String key = null;
-            try { key = PersistenceManager.generateKey(target); } catch (Throwable ignored) {}
+            try {
+                key = PersistenceManager.generateKey(target);
+            } catch (Throwable ignored) {}
             if (key == null) continue;
 
             Map<String, ?> data;
-            try { data = container.exportPersistentData(); }
-            catch (Throwable t) { data = Collections.emptyMap(); }
+            try {
+                data = container.exportPersistentData();
+            } catch (Throwable t) {
+                data = Collections.emptyMap();
+            }
 
             entries.put(key, new BindingEntry(container.getScriptName(), data));
         }
@@ -300,13 +365,17 @@ public final class PersistenceStorage {
         try {
             writer = new FileWriter(bindingsFile);
             GSON.toJson(entries, BINDING_MAP_TYPE, writer);
-            System.out.println("[Klaymore PersistenceStorage] Saved " + entries.size()
-                + " bindings -> " + bindingsFile.getAbsolutePath());
+            System.out.println(
+                "[Klaymore PersistenceStorage] Saved " + entries.size()
+                    + " bindings -> "
+                    + bindingsFile.getAbsolutePath());
         } catch (Throwable t) {
             System.err.println("[Klaymore PersistenceStorage] ERROR saveAll: " + t.getMessage());
         } finally {
             if (writer != null) {
-                try { writer.close(); } catch (Throwable ignored) {}
+                try {
+                    writer.close();
+                } catch (Throwable ignored) {}
             }
         }
     }
@@ -321,12 +390,12 @@ public final class PersistenceStorage {
      * 但**不**执行任何实体/脚本的挂载（不调 tryBindEntry）。
      *
      * 配合 processAllBindings() + GlobalRoot.mountIfPresent() 形成三阶段完美时序：
-     *   ① loadBindingsCacheOnly()  → cachedBindings 有 bootCount 等持久化数据
-     *   ② GlobalRoot.mountIfPresent() → 从 getCachedBindingData 读 bootCount 当
-     *                                    initialPersistentData，创建 Root 容器，
-     *                                    markBound("dummy:root") 占坑
-     *   ③ processAllBindings()     → 处理 dummy:root 时 boundKeys 已包含 → 直接 return
-     *                                不新建第二容器；其他实体/玩家脚本正常挂载
+     * ① loadBindingsCacheOnly() → cachedBindings 有 bootCount 等持久化数据
+     * ② GlobalRoot.mountIfPresent() → 从 getCachedBindingData 读 bootCount 当
+     * initialPersistentData，创建 Root 容器，
+     * markBound("dummy:root") 占坑
+     * ③ processAllBindings() → 处理 dummy:root 时 boundKeys 已包含 → 直接 return
+     * 不新建第二容器；其他实体/玩家脚本正常挂载
      */
     public static synchronized void loadBindingsCacheOnly() {
         initialize();
@@ -354,12 +423,16 @@ public final class PersistenceStorage {
             cachedBindings = Collections.emptyMap();
         } finally {
             if (reader != null) {
-                try { reader.close(); } catch (Throwable ignored) {}
+                try {
+                    reader.close();
+                } catch (Throwable ignored) {}
             }
         }
 
-        System.out.println("[Klaymore PersistenceStorage] Read " + cachedBindings.size()
-            + " entries from disk: " + bindingsFile.getAbsolutePath());
+        System.out.println(
+            "[Klaymore PersistenceStorage] Read " + cachedBindings.size()
+                + " entries from disk: "
+                + bindingsFile.getAbsolutePath());
 
         // ⭐ 优化：bindings.json 中引用到的脚本，即便没有在全局目录预编译扫描里，
         // 也提前扔进异步编译池（比如引用了子目录里的脚本，或刚迁移的存档内旧脚本）。
@@ -367,12 +440,17 @@ public final class PersistenceStorage {
             File f = resolveScriptFile(entry.script);
             if (f != null && f.exists() && f.isFile()) {
                 String canonicalKey;
-                try { canonicalKey = f.getCanonicalPath(); }
-                catch (Throwable t) { canonicalKey = f.getAbsolutePath(); }
+                try {
+                    canonicalKey = f.getCanonicalPath();
+                } catch (Throwable t) {
+                    canonicalKey = f.getAbsolutePath();
+                }
                 if (!PRECOMPILE_SUBMITTED.add(canonicalKey)) continue;
                 try {
                     ScriptLoader.loadScriptAsync(f, new java.util.function.Consumer<CompiledScript>() {
-                        @Override public void accept(CompiledScript c) { }
+
+                        @Override
+                        public void accept(CompiledScript c) {}
                     });
                 } catch (Throwable ignore) {}
             }
@@ -388,8 +466,8 @@ public final class PersistenceStorage {
         // 启动时扫描：实体尚未加载 → resolve 几乎都 null（除了已经在 server.worldServers 里的极少实例）
         // 真正的绑定由 EntityJoinWorld / PlayerLoggedIn 事件触发；
         // 这里保留扫描仅为了打印日志数量统计 + 兼容极少数"服务器 tick 中加入的实体"情况。
-        List<Map.Entry<String, BindingEntry>> snapshot =
-            new ArrayList<Map.Entry<String, BindingEntry>>(cachedBindings.entrySet());
+        List<Map.Entry<String, BindingEntry>> snapshot = new ArrayList<Map.Entry<String, BindingEntry>>(
+            cachedBindings.entrySet());
         for (Map.Entry<String, BindingEntry> e : snapshot) {
             tryBindEntry(e.getKey(), e.getValue(), null);
         }
@@ -403,8 +481,8 @@ public final class PersistenceStorage {
         String playerKey = "entity:" + playerUuid;
         System.out.println("[Klaymore PersistenceStorage] PlayerLoggedIn check lazy bind: " + playerKey);
 
-        List<Map.Entry<String, BindingEntry>> snapshot =
-            new ArrayList<Map.Entry<String, BindingEntry>>(cachedBindings.entrySet());
+        List<Map.Entry<String, BindingEntry>> snapshot = new ArrayList<Map.Entry<String, BindingEntry>>(
+            cachedBindings.entrySet());
         for (Map.Entry<String, BindingEntry> e : snapshot) {
             String key = e.getKey();
             if (boundKeys.contains(key)) continue;
@@ -421,16 +499,20 @@ public final class PersistenceStorage {
         UUID entityUuid = entity.getUniqueID();
         if (entityUuid == null) return;
 
-        List<Map.Entry<String, BindingEntry>> snapshot =
-            new ArrayList<Map.Entry<String, BindingEntry>>(cachedBindings.entrySet());
+        List<Map.Entry<String, BindingEntry>> snapshot = new ArrayList<Map.Entry<String, BindingEntry>>(
+            cachedBindings.entrySet());
         int attemptCount = 0;
         for (Map.Entry<String, BindingEntry> e : snapshot) {
             String key = e.getKey();
             if (boundKeys.contains(key)) continue;
             if (matchesEntityUuid(key, entityUuid)) {
                 if (attemptCount == 0) {
-                    System.out.println("[Klaymore PersistenceStorage] EntityJoinWorld lazy bind for entity:"
-                        + entityUuid + " (class=" + entity.getClass().getSimpleName() + ")");
+                    System.out.println(
+                        "[Klaymore PersistenceStorage] EntityJoinWorld lazy bind for entity:" + entityUuid
+                            + " (class="
+                            + entity.getClass()
+                                .getSimpleName()
+                            + ")");
                 }
                 attemptCount++;
                 // ⭐ 关键优化：事件直接给出了 entity 对象，直接用它做 target！
@@ -445,7 +527,8 @@ public final class PersistenceStorage {
         if (key == null || !key.startsWith("entity:")) return false;
         String tail = key.substring("entity:".length());
         try {
-            return UUID.fromString(tail).equals(entityUuid);
+            return UUID.fromString(tail)
+                .equals(entityUuid);
         } catch (IllegalArgumentException ex) {
             return false;
         }
@@ -461,27 +544,25 @@ public final class PersistenceStorage {
     /**
      * 通用绑定入口（事件回调 / 启动扫描都走这个）。
      *
-     * @param preResolvedTarget 如果 != null 就直接用它（不再走 resolve），
-     *                          用于 handleEntityJoin / handlePlayerLogin，
-     *                          因为事件参数里已经给了我们活生生的 Entity 对象。
+     * @param preResolvedTarget      如果 != null 就直接用它（不再走 resolve），
+     *                               用于 handleEntityJoin / handlePlayerLogin，
+     *                               因为事件参数里已经给了我们活生生的 Entity 对象。
      * @param ignoredLegacyScriptDir 旧的「存档内 script 目录」参数，现已废弃，
      *                               脚本文件统一走 resolveScriptFile()（全局优先 + 存档 fallback）。
      */
-    private static void tryBindEntry(
-        final String key,
-        final BindingEntry entry,
-        final File ignoredLegacyScriptDir,
-        Object preResolvedTarget
-    ) {
+    private static void tryBindEntry(final String key, final BindingEntry entry, final File ignoredLegacyScriptDir,
+        Object preResolvedTarget) {
         if (key == null || entry == null) return;
         if (boundKeys.contains(key)) return;
         if (pendingKeys.contains(key)) return;
 
         Object target = preResolvedTarget;
         if (target == null) {
-            try { target = PersistenceManager.resolve(key); }
-            catch (Throwable t) {
-                System.err.println("[Klaymore PersistenceStorage] resolve exception key=[" + key + "]: " + t.getMessage());
+            try {
+                target = PersistenceManager.resolve(key);
+            } catch (Throwable t) {
+                System.err
+                    .println("[Klaymore PersistenceStorage] resolve exception key=[" + key + "]: " + t.getMessage());
                 return;
             }
             if (target == null) {
@@ -495,9 +576,11 @@ public final class PersistenceStorage {
                 try {
                     UUID actual = ((Entity) target).getUniqueID();
                     String expectedTail = key.substring("entity:".length());
-                    if (actual != null && !actual.toString().equals(expectedTail)) {
-                        System.err.println("[Klaymore PersistenceStorage] WARN: key [" + key
-                            + "] uuid mismatch with provided target. Skipping bind.");
+                    if (actual != null && !actual.toString()
+                        .equals(expectedTail)) {
+                        System.err.println(
+                            "[Klaymore PersistenceStorage] WARN: key [" + key
+                                + "] uuid mismatch with provided target. Skipping bind.");
                         return;
                     }
                 } catch (Throwable ignore) {}
@@ -510,8 +593,9 @@ public final class PersistenceStorage {
                 try {
                     rootContainer.importPersistentData(entry.data);
                 } catch (Throwable t) {
-                    System.err.println("[Klaymore PersistenceStorage] failed to import persistent data to GlobalRoot: "
-                        + t.getMessage());
+                    System.err.println(
+                        "[Klaymore PersistenceStorage] failed to import persistent data to GlobalRoot: "
+                            + t.getMessage());
                 }
             }
             boundKeys.add(key);
@@ -522,10 +606,13 @@ public final class PersistenceStorage {
         // ⭐ 新策略：resolveScriptFile() — 全局优先，存档 fallback
         final File scriptFile = resolveScriptFile(entry.script);
         if (scriptFile == null || !scriptFile.exists() || !scriptFile.isFile()) {
-            System.err.println("[Klaymore PersistenceStorage] skip [" + key
-                + "]: script file missing -> "
-                + (scriptFile == null ? "(null)" : scriptFile.getAbsolutePath())
-                + " (请把脚本放到全局脚本目录: " + getScriptDirectory() + ")");
+            System.err.println(
+                "[Klaymore PersistenceStorage] skip [" + key
+                    + "]: script file missing -> "
+                    + (scriptFile == null ? "(null)" : scriptFile.getAbsolutePath())
+                    + " (请把脚本放到全局脚本目录: "
+                    + getScriptDirectory()
+                    + ")");
             return;
         }
 
@@ -536,33 +623,41 @@ public final class PersistenceStorage {
         // 提交异步编译前先标记 pending，防止同一个 key 重复入队
         pendingKeys.add(key);
 
-        System.out.println("[Klaymore PersistenceStorage] Submit async bind [" + key
-            + "] -> " + fScriptName);
+        System.out.println("[Klaymore PersistenceStorage] Submit async bind [" + key + "] -> " + fScriptName);
 
         try {
             ScriptContainerFactory.createAndMountAsync(
-                fScriptName, scriptFile, fTarget, null, fData,
+                fScriptName,
+                scriptFile,
+                fTarget,
+                null,
+                fData,
                 new java.util.function.Consumer<ScriptContainer>() {
+
                     @Override
                     public void accept(ScriptContainer container) {
                         // 回调里一定是主线程
                         pendingKeys.remove(key);
 
                         if (container == null) {
-                            System.err.println("[Klaymore PersistenceStorage] async bind FAILED ["
-                                + key + "] -> " + fScriptName);
+                            System.err.println(
+                                "[Klaymore PersistenceStorage] async bind FAILED [" + key + "] -> " + fScriptName);
                             return;
                         }
 
                         boundKeys.add(key);
-                        System.out.println("[Klaymore PersistenceStorage] Restored binding ["
-                            + key + "] -> " + fScriptName);
+                        System.out
+                            .println("[Klaymore PersistenceStorage] Restored binding [" + key + "] -> " + fScriptName);
                     }
                 });
         } catch (Throwable t) {
             pendingKeys.remove(key);
-            System.err.println("[Klaymore PersistenceStorage] submit async bind failed ["
-                + key + "] -> " + fScriptName + ": " + t.getMessage());
+            System.err.println(
+                "[Klaymore PersistenceStorage] submit async bind failed [" + key
+                    + "] -> "
+                    + fScriptName
+                    + ": "
+                    + t.getMessage());
         }
     }
 
@@ -586,8 +681,8 @@ public final class PersistenceStorage {
             List<ScriptContainer> list = ScriptBindingManager.getContainers();
             return list != null ? list : Collections.<ScriptContainer>emptyList();
         } catch (Throwable t) {
-            System.err.println("[Klaymore PersistenceStorage] WARN ScriptBindingManager unavailable: "
-                + t.getMessage());
+            System.err
+                .println("[Klaymore PersistenceStorage] WARN ScriptBindingManager unavailable: " + t.getMessage());
             return Collections.emptyList();
         }
     }
@@ -639,6 +734,7 @@ public final class PersistenceStorage {
     // JVM 都会抛 IllegalAccessError（ASM 字节码类不是 PersistenceStorage 的宿主，无权访问 private 内部）。
 
     public static final class EventBusListener {
+
         static final EventBusListener INSTANCE = new EventBusListener();
 
         @SubscribeEvent
@@ -647,8 +743,8 @@ public final class PersistenceStorage {
             try {
                 handlePlayerLogin(event.player);
             } catch (Throwable t) {
-                System.err.println("[Klaymore PersistenceStorage] ERROR in onPlayerLoggedIn handler: "
-                    + t.getMessage());
+                System.err
+                    .println("[Klaymore PersistenceStorage] ERROR in onPlayerLoggedIn handler: " + t.getMessage());
             }
         }
 
@@ -658,8 +754,8 @@ public final class PersistenceStorage {
             try {
                 handleEntityJoin(event.entity);
             } catch (Throwable t) {
-                System.err.println("[Klaymore PersistenceStorage] ERROR in onEntityJoinWorld handler: "
-                    + t.getMessage());
+                System.err
+                    .println("[Klaymore PersistenceStorage] ERROR in onEntityJoinWorld handler: " + t.getMessage());
             }
         }
     }
@@ -667,6 +763,7 @@ public final class PersistenceStorage {
     // ---------- 内部：BindingEntry POJO（Gson 序列化用） ----------
 
     public static final class BindingEntry {
+
         public String script;
         public Map<String, ?> data;
 

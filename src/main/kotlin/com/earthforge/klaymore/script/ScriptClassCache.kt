@@ -1,40 +1,34 @@
 package com.earthforge.klaymore.script
 
+import com.earthforge.klaymore.MinecraftDirectory
 import com.google.gson.Gson
 import com.google.gson.GsonBuilder
 import java.io.ByteArrayInputStream
 import java.io.DataInputStream
 import java.io.File
 import java.security.MessageDigest
+import kotlin.reflect.KClass
 import kotlin.script.experimental.api.CompiledScript
 import kotlin.script.experimental.api.ResultWithDiagnostics
 import kotlin.script.experimental.api.ScriptCompilationConfiguration
 import kotlin.script.experimental.api.ScriptEvaluationConfiguration
 import kotlinx.coroutines.runBlocking
 import net.minecraft.launchwrapper.Launch
-import kotlin.reflect.KClass
 
 /**
  * 脚本编译产物的磁盘缓存。
  *
- * 每次游戏重启，内存中的 compileCache 都会丢失，导致脚本需要重新编译（Kotlin 编译器
- * 冷启动 + 全量编译一个脚本通常几百 ms ~ 数秒）。本模块把编译后的 .class 字节码落盘，
- * 下次启动时只要脚本文件的 lastModified 没变，就直接从磁盘读回字节码、defineClass，
- * 跳过编译，挂载耗时降到 <1ms。
+ * 每次游戏重启，内存中的 compileCache 都会丢失，导致脚本需要重新编译（Kotlin 编译器 冷启动 + 全量编译一个脚本通常几百 ms ~ 数秒）。本模块把编译后的 .class
+ * 字节码落盘， 下次启动时只要脚本文件的 lastModified 没变，就直接从磁盘读回字节码、defineClass， 跳过编译，挂载耗时降到 <1ms。
  *
- * 缓存目录：<全局脚本目录>/.script-class-cache/<md5(脚本绝对路径)>/
- *   ├─ meta.json          # 记录 scriptPath / lastModified / mainClassName / classNames
- *   ├─ <MainClass>.class
- *   ├─ <MainClass$Inner>.class
- *   └─ ...
+ * 缓存目录：<mcRoot>/.klaymore-cache/script-class-cache/<md5(脚本绝对路径)>/ ├─ meta.json # 记录
+ * scriptPath / lastModified / mainClassName / classNames ├─ <MainClass>.class ├─ <MainClass$Inner>.class └─ ...
  *
  * 关键实现点：
- *   - CompiledScript 是 kotlin scripting 的接口，只有 getClass() 会被上层用到
- *     （见 ScriptContainerFactory.instantiateScript），所以我们用一个 CachedCompiledScript
- *     包装已加载的 KClass 即可无缝替换。
- *   - 提取编译产物字节码：优先反射 CompiledScript / 其 ClassLoader 中的
- *     Map<String, ByteArray> 字段（kotlin-scripting-jvm 的 BasicCompiledScript 内部实现）；
- *     拿不到时回退到 getResourceAsStream 读常量池闭包内的所有相关类。
+ * - CompiledScript 是 kotlin scripting 的接口，只有 getClass() 会被上层用到 （见
+ *   ScriptContainerFactory.instantiateScript），所以我们用一个 CachedCompiledScript 包装已加载的 KClass 即可无缝替换。
+ * - 提取编译产物字节码：优先反射 CompiledScript / 其 ClassLoader 中的 Map<String, ByteArray> 字段（kotlin-scripting-jvm
+ *   的 BasicCompiledScript 内部实现）； 拿不到时回退到 getResourceAsStream 读常量池闭包内的所有相关类。
  */
 object ScriptClassCache {
 
@@ -49,12 +43,24 @@ object ScriptClassCache {
 
   private fun getCacheRoot(): File? {
     return try {
-      val scriptDir = PersistenceStorage.getScriptDirectory() ?: return null
-      val cacheRoot = File(scriptDir, ".script-class-cache")
+      // 缓存放在 <mcRoot>/.klaymore-cache/script-class-cache/，与脚本目录分开，
+      // 避免污染源码目录（之前放在 <scriptDir>/.script-class-cache，非常丑陋）。
+      val cacheRoot = File(MinecraftDirectory.getGlobalCacheDirectory(), "script-class-cache")
       if (!cacheRoot.exists() && !cacheRoot.mkdirs()) {
         System.err.println(
             "[Klaymore ScriptCache] WARN: cannot mkdir cache root: ${cacheRoot.absolutePath}")
         return null
+      }
+      // 清理旧位置：之前缓存在 <scriptDir>/.script-class-cache，迁移后顺手删掉，
+      // 让脚本目录恢复干净。失败忽略，不影响功能。
+      try {
+        val legacy = File(PersistenceStorage.getScriptDirectory(), ".script-class-cache")
+        if (legacy.exists()) {
+          legacy.deleteRecursively()
+          println("[Klaymore ScriptCache] cleaned up legacy cache dir: ${legacy.absolutePath}")
+        }
+      } catch (_: Throwable) {
+        /* ignore */
       }
       cacheRoot
     } catch (t: Throwable) {
@@ -77,6 +83,7 @@ object ScriptClassCache {
 
   /**
    * 尝试从磁盘缓存加载已编译脚本。
+   *
    * @return 命中且有效 → CachedCompiledScript；否则 null（回退到重新编译）
    */
   fun load(scriptFile: File, lastModified: Long): CompiledScript? {
@@ -123,9 +130,7 @@ object ScriptClassCache {
     }
   }
 
-  /**
-   * 把编译产物落盘。失败不抛出，只返回 false 并打日志（编译本身已成功，缓存失败不应阻断流程）。
-   */
+  /** 把编译产物落盘。失败不抛出，只返回 false 并打日志（编译本身已成功，缓存失败不应阻断流程）。 */
   fun save(scriptFile: File, lastModified: Long, compiled: CompiledScript): Boolean {
     val originalLoader = Thread.currentThread().contextClassLoader
     return try {
@@ -153,8 +158,7 @@ object ScriptClassCache {
 
         val dir = cacheDir(scriptFile) ?: return false
         if (!dir.exists() && !dir.mkdirs()) {
-          System.err.println(
-              "[Klaymore ScriptCache] cannot mkdir cache dir: ${dir.absolutePath}")
+          System.err.println("[Klaymore ScriptCache] cannot mkdir cache dir: ${dir.absolutePath}")
           return false
         }
 
@@ -205,9 +209,8 @@ object ScriptClassCache {
   // ----------------------------------------------------------------------------------
 
   /**
-   * 主入口：反射 CompiledScript 及其 ClassLoader 上所有 Map<String, ByteArray> 字段
-   * （kotlin-scripting-jvm 编译产物的标准存储方式），合并后提取脚本相关类。
-   * 若主类字节码缺失，则用 getResourceAsStream 兜底读取。
+   * 主入口：反射 CompiledScript 及其 ClassLoader 上所有 Map<String, ByteArray> 字段 （kotlin-scripting-jvm
+   * 编译产物的标准存储方式），合并后提取脚本相关类。 若主类字节码缺失，则用 getResourceAsStream 兜底读取。
    */
   private fun extractScriptClassBytes(
       compiled: CompiledScript,
@@ -340,17 +343,24 @@ object ScriptClassCache {
           7 -> { // Class
             classRefs.add(dis.readUnsignedShort())
           }
-          3, 4 -> dis.skipBytes(4) // Integer, Float
-          5, 6 -> { // Long, Double（占 2 个常量池槽位）
+          3,
+          4 -> dis.skipBytes(4) // Integer, Float
+          5,
+          6 -> { // Long, Double（占 2 个常量池槽位）
             dis.skipBytes(8)
             i++
           }
           8 -> dis.skipBytes(2) // String
-          9, 10, 11, 12 -> dis.skipBytes(4) // Fieldref, Methodref, InterfaceMethodref, NameAndType
+          9,
+          10,
+          11,
+          12 -> dis.skipBytes(4) // Fieldref, Methodref, InterfaceMethodref, NameAndType
           15 -> dis.skipBytes(3) // MethodHandle
           16 -> dis.skipBytes(2) // MethodType
-          17, 18 -> dis.skipBytes(4) // Dynamic, InvokeDynamic
-          19, 20 -> dis.skipBytes(2) // Module, Package
+          17,
+          18 -> dis.skipBytes(4) // Dynamic, InvokeDynamic
+          19,
+          20 -> dis.skipBytes(2) // Module, Package
           else -> break // 未知 tag，无法继续解析
         }
         i++

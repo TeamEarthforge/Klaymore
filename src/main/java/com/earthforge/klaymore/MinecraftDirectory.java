@@ -7,6 +7,7 @@ import java.lang.reflect.Method;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.world.World;
 import net.minecraft.world.storage.ISaveHandler;
+
 import cpw.mods.fml.common.FMLCommonHandler;
 
 /**
@@ -15,17 +16,17 @@ import cpw.mods.fml.common.FMLCommonHandler;
  * 安全地定位 .minecraft 根目录（客户端）或服务器根目录（专用服务器）。
  *
  * 为什么需要这个：
- *   - 客户端：脚本放在 .minecraft/klaymore/（与 saves/ 同级，全局共享，所有世界复用）
- *   - 专用服务器：脚本放在 <server_root>/klaymore/（与 world/ 同级）
- *   - 这样脚本不需要每个世界复制一份，并且**编译时机可以前置到 Mod 初始化阶段**，
- *     玩家进入地图时脚本已经编译好了（compileCache 命中），挂载 ≤1ms，零卡顿。
+ * - 客户端：脚本放在 .minecraft/klaymore/（与 saves/ 同级，全局共享，所有世界复用）
+ * - 专用服务器：脚本放在 <server_root>/klaymore/（与 world/ 同级）
+ * - 这样脚本不需要每个世界复制一份，并且**编译时机可以前置到 Mod 初始化阶段**，
+ * 玩家进入地图时脚本已经编译好了（compileCache 命中），挂载 ≤1ms，零卡顿。
  *
  * 定位策略优先级：
- *   1. 客户端：反射 Minecraft.mcDataDir（1.7.10 字段就是这个名，public File）
- *   2. 集成 / 专用服务端：从 world save 目录向上反推
- *        - 若是 saves/<WorldName>/ 结构 → saves 的父目录就是 .minecraft
- *        - 若是 world/ 目录结构（专用服） → 父目录就是 server 根
- *   3. Fallback：new File(".")（当前工作目录）
+ * 1. 客户端：反射 Minecraft.mcDataDir（1.7.10 字段就是这个名，public File）
+ * 2. 集成 / 专用服务端：从 world save 目录向上反推
+ * - 若是 saves/<WorldName>/ 结构 → saves 的父目录就是 .minecraft
+ * - 若是 world/ 目录结构（专用服） → 父目录就是 server 根
+ * 3. Fallback：new File(".")（当前工作目录）
  */
 public final class MinecraftDirectory {
 
@@ -54,8 +55,24 @@ public final class MinecraftDirectory {
         File dir = new File(getRoot(), GLOBAL_SCRIPT_DIRNAME);
         if (!dir.exists()) {
             if (!dir.mkdirs()) {
-                System.err.println("[Klaymore MinecraftDirectory] WARN: cannot mkdir global scripts dir: "
-                    + dir.getAbsolutePath());
+                System.err.println(
+                    "[Klaymore MinecraftDirectory] WARN: cannot mkdir global scripts dir: " + dir.getAbsolutePath());
+            }
+        }
+        return dir;
+    }
+
+    /**
+     * 获取全局缓存目录 = <mcRoot>/.klaymore-cache
+     * 编译产物（.class 字节码）等可丢弃的中间数据放在这里，与脚本目录分开，
+     * 避免污染源码目录。脚本被全局共享，缓存也按全局存放。
+     */
+    public static File getGlobalCacheDirectory() {
+        File dir = new File(getRoot(), ".klaymore-cache");
+        if (!dir.exists()) {
+            if (!dir.mkdirs()) {
+                System.err.println(
+                    "[Klaymore MinecraftDirectory] WARN: cannot mkdir global cache dir: " + dir.getAbsolutePath());
             }
         }
         return dir;
@@ -65,7 +82,9 @@ public final class MinecraftDirectory {
 
     private static File resolveInternal() {
         // ---- 1. 客户端优先：拿 Minecraft.mcDataDir ----
-        if (FMLCommonHandler.instance().getSide().isClient()) {
+        if (FMLCommonHandler.instance()
+            .getSide()
+            .isClient()) {
             try {
                 Class<?> mcCls = Class.forName("net.minecraft.client.Minecraft");
                 Method getMc = mcCls.getMethod("getMinecraft");
@@ -127,9 +146,11 @@ public final class MinecraftDirectory {
                     ISaveHandler sh = worlds[0].getSaveHandler();
                     if (sh != null) {
                         File d = sh.getWorldDirectory();
-                        if (d != null && d.getParentFile() != null) return d.getParentFile().getParentFile() != null
-                            && "saves".equalsIgnoreCase(d.getParentFile().getName())
-                            ? d.getParentFile().getParentFile() : d.getParentFile();
+                        if (d != null && d.getParentFile() != null) return d.getParentFile()
+                            .getParentFile() != null && "saves".equalsIgnoreCase(
+                                d.getParentFile()
+                                    .getName()) ? d.getParentFile()
+                                        .getParentFile() : d.getParentFile();
                     }
                 }
             }

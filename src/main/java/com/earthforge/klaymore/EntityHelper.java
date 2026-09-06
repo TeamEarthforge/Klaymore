@@ -1,9 +1,10 @@
 package com.earthforge.klaymore;
 
-import net.minecraft.entity.Entity;
-import net.minecraft.world.World;
 import java.util.List;
 import java.util.UUID;
+
+import net.minecraft.entity.Entity;
+import net.minecraft.world.World;
 
 public class EntityHelper {
 

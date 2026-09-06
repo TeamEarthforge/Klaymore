@@ -9,7 +9,8 @@ class ScriptContainer(
     compiledScript: CompiledScript,
     target: Any? = null,
     parent: ScriptContainer? = null,
-    scriptInstance: Any? = null
+    scriptInstance: Any? = null,
+    val side: ScriptSide = ScriptSide.SERVER
 ) {
   private var _compiledScript: CompiledScript = compiledScript
   private var _scriptInstance: Any? = scriptInstance
@@ -35,8 +36,8 @@ class ScriptContainer(
       "Use getTemp() or getPersistent() for explicit semantics", ReplaceWith("getTemp(key)"))
   fun getData(key: String): Any? = getTemp(key)
 
-  @Deprecated("Use setTemp() or setPersistent() for explicit semantics",
-      ReplaceWith("setTemp(key, value)"))
+  @Deprecated(
+      "Use setTemp() or setPersistent() for explicit semantics", ReplaceWith("setTemp(key, value)"))
   fun setData(key: String, value: Any?) = setTemp(key, value)
 
   fun getPersistent(key: String): Any? = persistentDataMap[key]
@@ -91,7 +92,10 @@ class ScriptContainer(
 
   private fun isSafePersistentType(value: Any): Boolean {
     return when (value) {
-      is String, is Boolean, is Number, is Char -> true
+      is String,
+      is Boolean,
+      is Number,
+      is Char -> true
       is List<*> -> value.all { it == null || isSafePersistentType(it) }
       is Map<*, *> ->
           value.all { (k, v) ->
@@ -133,6 +137,8 @@ class ScriptContainer(
   }
 
   internal fun onUnmount() {
+    ScriptNetDispatcher.unregisterContainer(this)
+
     val target = _targetRef.get()
     if (target != null) {
       SubscriberRegistry.unregisterAll(target)
@@ -229,23 +235,24 @@ object ScriptInjectionUtils {
     invokeConventionMethod(instance, "bindTarget", target)
     invokeConventionMethod(instance, "bindParent", parentTarget)
     invokeConventionMethod(instance, "bindContainer", container)
+    // bindNet 必须最后注入：脚本可能在 bindNet 里立即调用 net.on(...) 注册 handler，
+    // 此时 container 已就绪，ScriptNetImpl 能正确关联生命周期
+    invokeConventionMethod(instance, "bindNet", ScriptNetImpl(container))
   }
 
   @JvmStatic
-  fun registerSubscribers(instance: Any, target: Any) {
+  fun registerSubscribers(instance: Any, target: Any, side: ScriptSide = ScriptSide.SERVER) {
     val methods = instance::class.java.declaredMethods
     for (method in methods) {
       val annotation = method.getAnnotation(Subscribe::class.java) ?: continue
 
       val modifiers = method.modifiers
       if (java.lang.reflect.Modifier.isStatic(modifiers)) {
-        ScriptErrorReporter.report(
-            "${method.name} 被 @Subscribe 标记但为静态方法，已忽略（仅支持实例方法）")
+        ScriptErrorReporter.report("${method.name} 被 @Subscribe 标记但为静态方法，已忽略（仅支持实例方法）")
         continue
       }
       if (method.parameterCount != 1) {
-        ScriptErrorReporter.report(
-            "${method.name} 被 @Subscribe 标记但参数数量不为 1，已忽略（需要恰好一个事件参数）")
+        ScriptErrorReporter.report("${method.name} 被 @Subscribe 标记但参数数量不为 1，已忽略（需要恰好一个事件参数）")
         continue
       }
 
@@ -260,7 +267,7 @@ object ScriptInjectionUtils {
       SubscriberRegistry.register(
           eventType = annotation.event,
           target = target,
-          handler = SubscriberRegistry.Handler(instance, method))
+          handler = SubscriberRegistry.Handler(instance, method, side))
     }
   }
 }

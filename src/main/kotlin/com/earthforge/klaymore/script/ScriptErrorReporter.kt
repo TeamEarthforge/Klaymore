@@ -8,8 +8,7 @@ object ScriptErrorReporter {
     println("[Klaymore Script] $message")
   }
 
-  @JvmStatic
-  fun reportStatic(message: String) = report(message)
+  @JvmStatic fun reportStatic(message: String) = report(message)
 
   fun getLastErrors(): List<String> = errors.toList()
 

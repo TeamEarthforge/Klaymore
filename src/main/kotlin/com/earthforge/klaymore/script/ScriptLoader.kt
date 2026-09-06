@@ -27,7 +27,9 @@ object ScriptLoader {
 
   @Synchronized
   private fun getOrCreateCompiler(): JvmScriptCompiler {
-    compiler?.let { return it }
+    compiler?.let {
+      return it
+    }
     val savedCl = Thread.currentThread().contextClassLoader
     try {
       // ⭐ 关键：创建编译器前必须先切到 Launch.classLoader，
@@ -38,9 +40,10 @@ object ScriptLoader {
 
       // 预热：手动强制加载几个关键类，让它们在正确的 classloader 上下文完成 <clinit>
       try {
-        Class.forName(
-            "org.jetbrains.kotlin.builtins.KotlinBuiltIns", true, Launch.classLoader)
-      } catch (_: Throwable) { /* ignore */ }
+        Class.forName("org.jetbrains.kotlin.builtins.KotlinBuiltIns", true, Launch.classLoader)
+      } catch (_: Throwable) {
+        /* ignore */
+      }
 
       // 用正确的 ClassLoader 创建编译器实例
       val newCompiler =
@@ -121,20 +124,25 @@ object ScriptLoader {
                   var depth = 0
                   var cur: Throwable? = ex
                   while (cur != null && depth < 8) {
-                    System.err.println("[Klaymore Script]   Cause chain [${depth}]: ${cur.javaClass.name}: ${cur.message}")
+                    System.err.println(
+                        "[Klaymore Script]   Cause chain [${depth}]: ${cur.javaClass.name}: ${cur.message}")
                     cur.stackTrace?.take(6)?.forEach { ste ->
-                      System.err.println("[Klaymore Script]     at ${ste.className}.${ste.methodName}(${ste.fileName}:${ste.lineNumber})")
+                      System.err.println(
+                          "[Klaymore Script]     at ${ste.className}.${ste.methodName}(${ste.fileName}:${ste.lineNumber})")
                     }
                     depth++
                     cur = cur.cause
                   }
                   // 最后完整打印一次最里层异常（便于复制完整堆栈）
                   if (depth > 0) {
-                    System.err.println("[Klaymore Script]   --- Full stacktrace of original exception ---")
+                    System.err.println(
+                        "[Klaymore Script]   --- Full stacktrace of original exception ---")
                     ex.printStackTrace(System.err)
                   }
                 }
-              } catch (_: Throwable) { /* ignore */ }
+              } catch (_: Throwable) {
+                /* ignore */
+              }
             }
         val errors =
             compileResult.reports
@@ -301,7 +309,9 @@ object ScriptLoader {
       val cwd = File(System.getProperty("user.dir"))
       candidateProjectRoots.add(cwd)
       cwd.parentFile?.let { candidateProjectRoots.add(it) }
-    } catch (_: Throwable) { /* ignore */ }
+    } catch (_: Throwable) {
+      /* ignore */
+    }
 
     fun addBuildClassesDirs(projectDir: File) {
       if (!projectDir.isDirectory) return
@@ -320,9 +330,7 @@ object ScriptLoader {
       // kotlin 独立输出目录
       val buildClassesKotlin = File(projectDir, "build/classes/kotlin")
       if (buildClassesKotlin.isDirectory) {
-        buildClassesKotlin.listFiles()?.forEach { ss ->
-          if (ss.isDirectory) addFile(ss)
-        }
+        buildClassesKotlin.listFiles()?.forEach { ss -> if (ss.isDirectory) addFile(ss) }
       }
       // 项目 libs/ 目录（比如 Klaymore/libs/klaymore-runtime.jar）
       val libsDir = File(projectDir, "libs")
@@ -377,12 +385,10 @@ object ScriptLoader {
       println("    ⚠ CustomNPCs classes dir NOT FOUND in compile classpath!")
     }
     // 额外确认关键 API class 是否存在
-    val hasICustomNpc = files.any { f ->
-      File(f, "noppes/npcs/api/entity/ICustomNpc.class").exists()
-    }
-    val hasEntityCustomNpc = files.any { f ->
-      File(f, "noppes/npcs/entity/EntityCustomNpc.class").exists()
-    }
+    val hasICustomNpc =
+        files.any { f -> File(f, "noppes/npcs/api/entity/ICustomNpc.class").exists() }
+    val hasEntityCustomNpc =
+        files.any { f -> File(f, "noppes/npcs/entity/EntityCustomNpc.class").exists() }
     println("    + ICustomNpc.class: $hasICustomNpc, EntityCustomNpc.class: $hasEntityCustomNpc")
 
     return files.toList()
@@ -449,22 +455,26 @@ object ScriptLoader {
       try {
         val compiled = performCompile(scriptFile)
         // 编译完成 → 回到主线程更新缓存 + 回调
-        MainThreadDispatcher.schedule(Runnable {
-          if (compiled is ResultWithDiagnostics.Success<*>) {
-            @Suppress("UNCHECKED_CAST")
-            val script = (compiled as ResultWithDiagnostics.Success<CompiledScript>).value
-            compileCache[path] = script
-            lastModifiedCache[path] = lastModified
-            // 落盘缓存（失败不影响本次使用）
-            ScriptClassCache.save(scriptFile, lastModified, script)
-            callback(script)
-          } else {
-            callback(null)
-          }
-        })
+        MainThreadDispatcher.schedule(
+            Runnable {
+              if (compiled is ResultWithDiagnostics.Success<*>) {
+                @Suppress("UNCHECKED_CAST")
+                val script = (compiled as ResultWithDiagnostics.Success<CompiledScript>).value
+                compileCache[path] = script
+                lastModifiedCache[path] = lastModified
+                // 落盘缓存（失败不影响本次使用）
+                ScriptClassCache.save(scriptFile, lastModified, script)
+                callback(script)
+              } else {
+                callback(null)
+              }
+            })
       } catch (t: Throwable) {
-        System.err.println("[Klaymore ScriptLoader] Uncaught exception during async compile of "
-            + scriptFile.name + ": " + t.message)
+        System.err.println(
+            "[Klaymore ScriptLoader] Uncaught exception during async compile of " +
+                scriptFile.name +
+                ": " +
+                t.message)
         t.printStackTrace(System.err)
         MainThreadDispatcher.schedule(Runnable { callback(null) })
       }

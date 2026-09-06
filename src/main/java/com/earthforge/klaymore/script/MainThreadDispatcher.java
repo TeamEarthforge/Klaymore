@@ -1,12 +1,13 @@
 package com.earthforge.klaymore.script;
 
+import java.util.Queue;
+import java.util.concurrent.ConcurrentLinkedQueue;
+
+import net.minecraft.server.MinecraftServer;
+
 import cpw.mods.fml.common.FMLCommonHandler;
 import cpw.mods.fml.common.eventhandler.SubscribeEvent;
 import cpw.mods.fml.common.gameevent.TickEvent;
-import net.minecraft.server.MinecraftServer;
-
-import java.util.Queue;
-import java.util.concurrent.ConcurrentLinkedQueue;
 
 /**
  * MainThreadDispatcher
@@ -14,15 +15,15 @@ import java.util.concurrent.ConcurrentLinkedQueue;
  * 把 Runnable 安全地调度回游戏主线程执行。
  *
  * 为什么不直接用 Minecraft / MinecraftServer 的内置调度？
- *   - 客户端：net.minecraft.client.Minecraft#func_152344_a 存在，但属于 net.minecraft.client.* 包，
- *     服务端加载时会触发 ClassNotFound。
- *   - 服务端：MinecraftServer#addScheduledTask / func_152358_ax 在不同 Forge 构建里名字不稳定。
- *   - 本类用反射 + TickEvent fallback 双保险，在 client / server / dev / prod 都能跑。
+ * - 客户端：net.minecraft.client.Minecraft#func_152344_a 存在，但属于 net.minecraft.client.* 包，
+ * 服务端加载时会触发 ClassNotFound。
+ * - 服务端：MinecraftServer#addScheduledTask / func_152358_ax 在不同 Forge 构建里名字不稳定。
+ * - 本类用反射 + TickEvent fallback 双保险，在 client / server / dev / prod 都能跑。
  *
  * 策略优先级：
- *   1. 尝试反射调用 MinecraftClient.schedule（如果当前是客户端环境且类已加载）
- *   2. 尝试反射调用 MinecraftServer.addScheduledTask（如果当前有服务器实例）
- *   3. Fallback：塞到 ConcurrentLinkedQueue，每次 ServerTickEvent / ClientTickEvent 时 drain 执行
+ * 1. 尝试反射调用 MinecraftClient.schedule（如果当前是客户端环境且类已加载）
+ * 2. 尝试反射调用 MinecraftServer.addScheduledTask（如果当前有服务器实例）
+ * 3. Fallback：塞到 ConcurrentLinkedQueue，每次 ServerTickEvent / ClientTickEvent 时 drain 执行
  */
 public final class MainThreadDispatcher {
 
@@ -50,10 +51,10 @@ public final class MainThreadDispatcher {
         boolean scheduledByClient = false;
         try {
             Class<?> mcCls = Class.forName("net.minecraft.client.Minecraft");
-            Object mc = mcCls.getMethod("getMinecraft").invoke(null);
+            Object mc = mcCls.getMethod("getMinecraft")
+                .invoke(null);
             if (mc != null) {
-                java.lang.reflect.Method schedule =
-                    mcCls.getMethod("func_152344_a", Runnable.class);
+                java.lang.reflect.Method schedule = mcCls.getMethod("func_152344_a", Runnable.class);
                 schedule.invoke(mc, wrapSafely(task));
                 scheduledByClient = true;
             }
@@ -67,23 +68,22 @@ public final class MainThreadDispatcher {
             if (server != null) {
                 // 尝试 addScheduledTask
                 try {
-                    java.lang.reflect.Method m =
-                        server.getClass().getMethod("addScheduledTask", Runnable.class);
+                    java.lang.reflect.Method m = server.getClass()
+                        .getMethod("addScheduledTask", Runnable.class);
                     m.invoke(server, wrapSafely(task));
                     scheduledByServer = true;
                 } catch (NoSuchMethodException ignored) {}
                 if (!scheduledByServer) {
                     // 尝试 func_152358_ax → FutureTaskScheduler 之类的字段
                     try {
-                        java.lang.reflect.Method m =
-                            server.getClass().getMethod("func_152358_ax");
+                        java.lang.reflect.Method m = server.getClass()
+                            .getMethod("func_152358_ax");
                         Object scheduler = m.invoke(server);
                         if (scheduler != null) {
-                            java.lang.reflect.Method schedMethod =
-                                scheduler.getClass().getMethod("schedule", Runnable.class, long.class,
-                                    java.util.concurrent.TimeUnit.class);
-                            schedMethod.invoke(scheduler, wrapSafely(task), 0L,
-                                java.util.concurrent.TimeUnit.MILLISECONDS);
+                            java.lang.reflect.Method schedMethod = scheduler.getClass()
+                                .getMethod("schedule", Runnable.class, long.class, java.util.concurrent.TimeUnit.class);
+                            schedMethod
+                                .invoke(scheduler, wrapSafely(task), 0L, java.util.concurrent.TimeUnit.MILLISECONDS);
                             scheduledByServer = true;
                         }
                     } catch (Throwable ignored) {}
@@ -99,13 +99,14 @@ public final class MainThreadDispatcher {
 
     private static Runnable wrapSafely(final Runnable inner) {
         return new Runnable() {
+
             @Override
             public void run() {
                 try {
                     inner.run();
                 } catch (Throwable t) {
-                    System.err.println("[Klaymore MainThreadDispatcher] Exception in scheduled task: "
-                        + t.getMessage());
+                    System.err
+                        .println("[Klaymore MainThreadDispatcher] Exception in scheduled task: " + t.getMessage());
                     t.printStackTrace(System.err);
                 }
             }
@@ -114,26 +115,32 @@ public final class MainThreadDispatcher {
 
     private static boolean isLikelyMainThread() {
         // 简单启发式：Forge 1.7.10 主线程名通常是 "main" (客户端) / "Server thread" (服务端)
-        String name = Thread.currentThread().getName();
+        String name = Thread.currentThread()
+            .getName();
         if ("main".equals(name) || "Server thread".equals(name)) return true;
         // 客户端在某些启动阶段可能叫 "Minecraft main thread"
-        if (name != null && name.contains("main") && name.toLowerCase().contains("thread")) return true;
+        if (name != null && name.contains("main")
+            && name.toLowerCase()
+                .contains("thread"))
+            return true;
         return false;
     }
 
     private static synchronized void ensureTickHookRegistered() {
         if (tickHookRegistered) return;
         try {
-            FMLCommonHandler.instance().bus().register(TickDrain.INSTANCE);
+            FMLCommonHandler.instance()
+                .bus()
+                .register(TickDrain.INSTANCE);
             tickHookRegistered = true;
         } catch (Throwable t) {
-            System.err.println("[Klaymore MainThreadDispatcher] WARN: register tick hook failed: "
-                + t.getMessage());
+            System.err.println("[Klaymore MainThreadDispatcher] WARN: register tick hook failed: " + t.getMessage());
         }
     }
 
     /** 服务端和客户端 tick 都会触发的 drain hook（用最高频率的通用 TickEvent 即可） */
     public static final class TickDrain {
+
         static final TickDrain INSTANCE = new TickDrain();
 
         @SubscribeEvent
@@ -148,8 +155,7 @@ public final class MainThreadDispatcher {
                 try {
                     r.run();
                 } catch (Throwable t) {
-                    System.err.println("[Klaymore MainThreadDispatcher] EXCEPTION during drain: "
-                        + t.getMessage());
+                    System.err.println("[Klaymore MainThreadDispatcher] EXCEPTION during drain: " + t.getMessage());
                     t.printStackTrace(System.err);
                 }
             }

@@ -1,22 +1,20 @@
 package com.earthforge.klaymore.wand;
 
+import java.io.File;
+import java.util.List;
+
+import net.minecraft.entity.Entity;
+import net.minecraft.entity.player.EntityPlayerMP;
+import net.minecraft.item.ItemStack;
+import net.minecraft.util.ChatComponentText;
+import net.minecraft.util.EnumChatFormatting;
+
 import com.earthforge.klaymore.Klaymore;
 import com.earthforge.klaymore.item.KlaymoreItems;
 import com.earthforge.klaymore.script.PersistenceStorage;
 import com.earthforge.klaymore.script.ScriptBindingManager;
 import com.earthforge.klaymore.script.ScriptContainer;
 import com.earthforge.klaymore.script.ScriptContainerFactory;
-
-import net.minecraft.entity.Entity;
-import net.minecraft.entity.player.EntityPlayer;
-import net.minecraft.entity.player.EntityPlayerMP;
-import net.minecraft.item.ItemStack;
-import net.minecraft.util.ChatComponentText;
-import net.minecraft.util.ChatComponentTranslation;
-import net.minecraft.util.EnumChatFormatting;
-
-import java.io.File;
-import java.util.List;
 
 public final class WandEventBridge {
 
@@ -27,16 +25,14 @@ public final class WandEventBridge {
 
         ItemStack held = player.getCurrentEquippedItem();
         if (held == null || held.getItem() != KlaymoreItems.klaymoreWand) {
-            player.addChatMessage(new ChatComponentText(EnumChatFormatting.RED +
-                "必须手持 Klaymore Wand 才能绑定脚本"));
+            player.addChatMessage(new ChatComponentText(EnumChatFormatting.RED + "必须手持 Klaymore Wand 才能绑定脚本"));
             return;
         }
 
         if (player.worldObj == null) return;
         Entity target = player.worldObj.getEntityByID(entityId);
         if (target == null) {
-            player.addChatMessage(new ChatComponentText(EnumChatFormatting.RED +
-                "目标实体不存在或已被加载卸载"));
+            player.addChatMessage(new ChatComponentText(EnumChatFormatting.RED + "目标实体不存在或已被加载卸载"));
             return;
         }
 
@@ -56,8 +52,9 @@ public final class WandEventBridge {
         File scriptFile = PersistenceStorage.resolveScriptFile(normalizedName);
         if (scriptFile == null || !scriptFile.exists() || !scriptFile.isFile()) {
             String where = (globalDir != null) ? globalDir.getAbsolutePath() : "<unknown>";
-            player.addChatMessage(new ChatComponentText(EnumChatFormatting.RED +
-                "脚本文件不存在: " + normalizedName + " (全局脚本目录: " + where + ")"));
+            player.addChatMessage(
+                new ChatComponentText(
+                    EnumChatFormatting.RED + "脚本文件不存在: " + normalizedName + " (全局脚本目录: " + where + ")"));
             return;
         }
 
@@ -67,18 +64,21 @@ public final class WandEventBridge {
         // ======== 异步编译 + 绑定（不阻塞主线程）========
         final String fNormalizedName = normalizedName;
         final Entity fTarget = target;
-        player.addChatMessage(new ChatComponentText(EnumChatFormatting.YELLOW +
-            "正在编译脚本: " + normalizedName + " ..."));
+        player.addChatMessage(new ChatComponentText(EnumChatFormatting.YELLOW + "正在编译脚本: " + normalizedName + " ..."));
 
         try {
             ScriptContainerFactory.createAndMountAsync(
-                fNormalizedName, scriptFile, fTarget, null,
+                fNormalizedName,
+                scriptFile,
+                fTarget,
+                null,
                 new java.util.function.Consumer<ScriptContainer>() {
+
                     @Override
                     public void accept(ScriptContainer container) {
                         if (container == null) {
-                            player.addChatMessage(new ChatComponentText(EnumChatFormatting.RED +
-                                "绑定失败：脚本编译或实例化失败，请查看日志"));
+                            player.addChatMessage(
+                                new ChatComponentText(EnumChatFormatting.RED + "绑定失败：脚本编译或实例化失败，请查看日志"));
                             return;
                         }
                         // ======== 编译成功 → 立即持久化 ========
@@ -86,16 +86,16 @@ public final class WandEventBridge {
                             PersistenceStorage.saveAll();
                         } catch (Throwable ignored) {}
 
-                        player.addChatMessage(new ChatComponentText(EnumChatFormatting.GREEN +
-                            "脚本绑定成功: " + fNormalizedName));
+                        player.addChatMessage(
+                            new ChatComponentText(EnumChatFormatting.GREEN + "脚本绑定成功: " + fNormalizedName));
                         player.closeScreen();
                     }
                 });
         } catch (Throwable t) {
-            Klaymore.LOG.error("[Klaymore Wand] submit async bind task failed: "
-                + normalizedName + " -> entity " + entityId, t);
-            player.addChatMessage(new ChatComponentText(EnumChatFormatting.RED +
-                "启动异步编译失败: " + t.getMessage()));
+            Klaymore.LOG.error(
+                "[Klaymore Wand] submit async bind task failed: " + normalizedName + " -> entity " + entityId,
+                t);
+            player.addChatMessage(new ChatComponentText(EnumChatFormatting.RED + "启动异步编译失败: " + t.getMessage()));
         }
     }
 
@@ -103,8 +103,7 @@ public final class WandEventBridge {
         if (target == null) return;
         List<ScriptContainer> list = ScriptBindingManager.findByTarget(target);
         if (list == null || list.isEmpty()) {
-            player.addChatMessage(new ChatComponentText(EnumChatFormatting.YELLOW +
-                "目标实体没有绑定任何 Klaymore 脚本"));
+            player.addChatMessage(new ChatComponentText(EnumChatFormatting.YELLOW + "目标实体没有绑定任何 Klaymore 脚本"));
             return;
         }
         int count = 0;
@@ -119,8 +118,7 @@ public final class WandEventBridge {
         try {
             PersistenceStorage.saveAll();
         } catch (Throwable ignored) {}
-        player.addChatMessage(new ChatComponentText(EnumChatFormatting.AQUA +
-            "已解绑 " + count + " 个脚本"));
+        player.addChatMessage(new ChatComponentText(EnumChatFormatting.AQUA + "已解绑 " + count + " 个脚本"));
     }
 
     private static void unbindScriptForTarget(EntityPlayerMP player, Entity target, String scriptName) {
@@ -138,7 +136,8 @@ public final class WandEventBridge {
     }
 
     private static String normalizeScriptName(String raw) {
-        String s = raw.trim().replace('\\', '/');
+        String s = raw.trim()
+            .replace('\\', '/');
         // 防穿越：去掉任何 ../
         while (s.contains("../")) {
             s = s.replace("../", "");
