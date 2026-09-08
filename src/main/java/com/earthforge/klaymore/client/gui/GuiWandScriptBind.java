@@ -71,13 +71,13 @@ public class GuiWandScriptBind extends GuiScreen {
             this.targetEntity = player.worldObj.getEntityByID(targetEntityId);
         }
 
-        // ⭐⭐⭐ 新策略：脚本现在是「全局共享」，放 .minecraft/klaymore （与 saves/ 同级）⭐⭐⭐
+        // 脚本现在放在 <mcRoot>/klaymore/script/ 下（全局共享），
         // 这样 Mod PostInit 时就能提前预编译所有脚本，玩家进入世界时 0 等待挂载。
-        this.rootScriptDir = MinecraftDirectory.getGlobalScriptDirectory();
+        this.rootScriptDir = MinecraftDirectory.getScriptDirectory();
         if (!this.rootScriptDir.exists()) {
             if (!this.rootScriptDir.mkdirs()) {
-                System.err.println(
-                    "[Klaymore Wand] WARN: cannot mkdir global script dir: " + this.rootScriptDir.getAbsolutePath());
+                System.err
+                    .println("[Klaymore Wand] WARN: cannot mkdir script dir: " + this.rootScriptDir.getAbsolutePath());
             }
         }
 

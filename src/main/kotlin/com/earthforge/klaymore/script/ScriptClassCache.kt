@@ -21,7 +21,7 @@ import net.minecraft.launchwrapper.Launch
  * 每次游戏重启，内存中的 compileCache 都会丢失，导致脚本需要重新编译（Kotlin 编译器 冷启动 + 全量编译一个脚本通常几百 ms ~ 数秒）。本模块把编译后的 .class
  * 字节码落盘， 下次启动时只要脚本文件的 lastModified 没变，就直接从磁盘读回字节码、defineClass， 跳过编译，挂载耗时降到 <1ms。
  *
- * 缓存目录：<mcRoot>/.klaymore-cache/script-class-cache/<md5(脚本绝对路径)>/ ├─ meta.json # 记录 scriptPath /
+ * 缓存目录：<mcRoot>/klaymore/cache/script-class-cache/<md5(脚本绝对路径)>/ ├─ meta.json # 记录 scriptPath /
  * lastModified / mainClassName / classNames ├─ <MainClass>.class ├─ <MainClass$Inner>.class └─ ...
  *
  * 关键实现点：
@@ -43,24 +43,13 @@ object ScriptClassCache {
 
   private fun getCacheRoot(): File? {
     return try {
-      // 缓存放在 <mcRoot>/.klaymore-cache/script-class-cache/，与脚本目录分开，
-      // 避免污染源码目录（之前放在 <scriptDir>/.script-class-cache，非常丑陋）。
-      val cacheRoot = File(MinecraftDirectory.getGlobalCacheDirectory(), "script-class-cache")
+      // 缓存放在 <mcRoot>/klaymore/cache/script-class-cache/，与脚本目录分开，
+      // 避免污染源码目录。
+      val cacheRoot = File(MinecraftDirectory.getCacheDirectory(), "script-class-cache")
       if (!cacheRoot.exists() && !cacheRoot.mkdirs()) {
         System.err.println(
             "[Klaymore ScriptCache] WARN: cannot mkdir cache root: ${cacheRoot.absolutePath}")
         return null
-      }
-      // 清理旧位置：之前缓存在 <scriptDir>/.script-class-cache，迁移后顺手删掉，
-      // 让脚本目录恢复干净。失败忽略，不影响功能。
-      try {
-        val legacy = File(PersistenceStorage.getScriptDirectory(), ".script-class-cache")
-        if (legacy.exists()) {
-          legacy.deleteRecursively()
-          println("[Klaymore ScriptCache] cleaned up legacy cache dir: ${legacy.absolutePath}")
-        }
-      } catch (_: Throwable) {
-        /* ignore */
       }
       cacheRoot
     } catch (t: Throwable) {

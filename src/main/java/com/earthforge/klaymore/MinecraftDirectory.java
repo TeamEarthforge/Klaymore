@@ -31,7 +31,10 @@ import cpw.mods.fml.common.FMLCommonHandler;
 public final class MinecraftDirectory {
 
     private static volatile File cachedRoot = null;
-    private static final String GLOBAL_SCRIPT_DIRNAME = "klaymore";
+    private static final String KLAYMORE_DIRNAME = "klaymore";
+    private static final String DATA_DIRNAME = "data";
+    private static final String SCRIPT_DIRNAME = "script";
+    private static final String CACHE_DIRNAME = "cache";
 
     private MinecraftDirectory() {}
 
@@ -48,34 +51,65 @@ public final class MinecraftDirectory {
     }
 
     /**
-     * 获取全局脚本目录 = <mcRoot>/klaymore
-     * 脚本文件是全局共享的，每个存档只需保存 bindings.json 这种轻量绑定关系。
+     * Klaymore 根目录 = <mcRoot>/klaymore
+     *
+     * 统一管理三类子目录：
+     * ┌──────────┬───────────────────────────────────────┐
+     * │ data/ │ JSON 数据（bindings.json 等） │
+     * │ script/ │ 脚本源码（server/, client/） │
+     * │ cache/ │ 可丢弃的中间数据（编译产物 .class 等）│
+     * └──────────┴───────────────────────────────────────┘
      */
-    public static File getGlobalScriptDirectory() {
-        File dir = new File(getRoot(), GLOBAL_SCRIPT_DIRNAME);
-        if (!dir.exists()) {
-            if (!dir.mkdirs()) {
-                System.err.println(
-                    "[Klaymore MinecraftDirectory] WARN: cannot mkdir global scripts dir: " + dir.getAbsolutePath());
-            }
-        }
+    public static File getKlaymoreRoot() {
+        File dir = new File(getRoot(), KLAYMORE_DIRNAME);
+        ensureDir(dir);
+        return dir;
+    }
+
+    /** 数据目录 = <mcRoot>/klaymore/data （JSON 等持久化数据） */
+    public static File getDataDirectory() {
+        File dir = new File(getKlaymoreRoot(), DATA_DIRNAME);
+        ensureDir(dir);
         return dir;
     }
 
     /**
-     * 获取全局缓存目录 = <mcRoot>/.klaymore-cache
-     * 编译产物（.class 字节码）等可丢弃的中间数据放在这里，与脚本目录分开，
-     * 避免污染源码目录。脚本被全局共享，缓存也按全局存放。
+     * 脚本目录 = <mcRoot>/klaymore/script
+     * 脚本文件是全局共享的，每个存档只需保存 bindings.json 这种轻量绑定关系。
      */
-    public static File getGlobalCacheDirectory() {
-        File dir = new File(getRoot(), ".klaymore-cache");
-        if (!dir.exists()) {
-            if (!dir.mkdirs()) {
-                System.err.println(
-                    "[Klaymore MinecraftDirectory] WARN: cannot mkdir global cache dir: " + dir.getAbsolutePath());
-            }
-        }
+    public static File getScriptDirectory() {
+        File dir = new File(getKlaymoreRoot(), SCRIPT_DIRNAME);
+        ensureDir(dir);
         return dir;
+    }
+
+    /**
+     * 缓存目录 = <mcRoot>/klaymore/cache
+     * 编译产物（.class 字节码）等可丢弃的中间数据放在这里，与脚本目录分开，
+     * 避免污染源码目录。
+     */
+    public static File getCacheDirectory() {
+        File dir = new File(getKlaymoreRoot(), CACHE_DIRNAME);
+        ensureDir(dir);
+        return dir;
+    }
+
+    /** @deprecated 使用 {@link #getScriptDirectory()} */
+    @Deprecated
+    public static File getGlobalScriptDirectory() {
+        return getScriptDirectory();
+    }
+
+    /** @deprecated 使用 {@link #getCacheDirectory()} */
+    @Deprecated
+    public static File getGlobalCacheDirectory() {
+        return getCacheDirectory();
+    }
+
+    private static void ensureDir(File dir) {
+        if (!dir.exists() && !dir.mkdirs()) {
+            System.err.println("[Klaymore MinecraftDirectory] WARN: cannot mkdir: " + dir.getAbsolutePath());
+        }
     }
 
     // ---------- internal ----------

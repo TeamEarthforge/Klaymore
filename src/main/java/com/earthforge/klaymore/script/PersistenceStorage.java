@@ -39,18 +39,20 @@ import kotlin.script.experimental.api.CompiledScript;
  * 脚本绑定持久化存储。
  *
  * ┌──────────────────────────────────────────────────────────────────┐
- * │ 目录策略（2026-08-30 调整） │
+ * │ 目录策略（2026-08-30 调整，三目录分离） │
  * ├──────────────────────┬───────────────────────────────────────────┤
  * │ 脚本文件 (.kt) │ 全局共享，所有世界复用 │
- * │ │ → .minecraft/klaymore/ (client) │
- * │ │ → <server_root>/klaymore/ (dedicated) │
- * │ │ （MinecraftDirectory.getGlobalScriptDirectory())│
+ * │ │ → <mcRoot>/klaymore/script/ │
+ * │ │ server/ client/ (子目录) │
  * ├──────────────────────┼───────────────────────────────────────────┤
  * │ bindings.json │ 每个存档独立（绑定关系是世界私有数据） │
- * │ │ → <SaveDir>/klaymore/bindings.json │
- * │ │ （例如 saves/New World/klaymore/） │
+ * │ │ → <mcRoot>/klaymore/data/bindings/ │
+ * │ │ <worldName>/bindings.json │
  * ├──────────────────────┼───────────────────────────────────────────┤
- * │ 向后兼容：脚本查找 │ 若全局目录未找到该脚本，回退尝试旧位置： │
+ * │ 编译缓存 (.class) │ 可丢弃的中间数据 │
+ * │ │ → <mcRoot>/klaymore/cache/ │
+ * ├──────────────────────┼───────────────────────────────────────────┤
+ * │ 向后兼容：脚本查找 │ 若脚本目录未找到该脚本，回退尝试旧位置： │
  * │ │ → <SaveDir>/klaymore/<脚本名>.kt │
  * └──────────────────────┴───────────────────────────────────────────┘
  *
@@ -129,12 +131,11 @@ public final class PersistenceStorage {
     }
 
     /**
-     * 脚本目录 = 全局共享目录。
+     * 脚本目录 = 全局共享目录 = <mcRoot>/klaymore/script
      * 所有世界都复用同一套脚本，允许编译前置到 Mod 初始化阶段。
-     * （位置：.minecraft/klaymore 或 <server_root>/klaymore）
      */
     public static File getScriptDirectory() {
-        return MinecraftDirectory.getGlobalScriptDirectory();
+        return MinecraftDirectory.getScriptDirectory();
     }
 
     /**
@@ -156,16 +157,16 @@ public final class PersistenceStorage {
 
     /**
      * 按「脚本文件名」解析真实文件路径。
-     * 优先级 1：全局脚本目录直接 → .minecraft/klaymore/<name> （兼容旧版）
-     * 优先级 2：server/ 子目录 → .minecraft/klaymore/server/<name>
-     * 优先级 3：client/ 子目录 → .minecraft/klaymore/client/<name>
+     * 优先级 1：脚本目录直接 → klaymore/script/<name> （兼容旧版 Root.kt 等）
+     * 优先级 2：server/ 子目录 → klaymore/script/server/<name>
+     * 优先级 3：client/ 子目录 → klaymore/script/client/<name>
      * 优先级 4：fallback 存档旧目录 → <SaveDir>/klaymore/<name>
      * 都找不到 → 返回一个在 server/ 目录下的 File（让上层报 missing，同时提示应该放哪里）
      */
     public static File resolveScriptFile(String scriptName) {
         if (scriptName == null) return null;
         File globalDir = getScriptDirectory();
-        // 1. 全局脚本目录直接（兼容旧版 Root.kt 等）
+        // 1. 脚本目录直接（兼容旧版 Root.kt 等）
         if (globalDir != null) {
             File f = new File(globalDir, scriptName);
             if (f.exists() && f.isFile()) return f;
@@ -187,7 +188,7 @@ public final class PersistenceStorage {
             if (f2.exists() && f2.isFile()) {
                 System.out.println(
                     "[Klaymore PersistenceStorage] resolved script from legacy save location: " + f2.getAbsolutePath()
-                        + " (建议迁移到全局脚本目录)");
+                        + " (建议迁移到脚本目录)");
                 return f2;
             }
         }
@@ -689,13 +690,38 @@ public final class PersistenceStorage {
 
     private static File getBindingsFileSafe() {
         File worldDir = getWorldDirectorySafe();
-        if (worldDir == null) return null;
-        // bindings.json 永远是世界私有数据，不随全局脚本变
-        File klaymoreDir = new File(worldDir, SAVE_SUBDIR_NAME);
-        if (!klaymoreDir.exists()) {
-            if (!klaymoreDir.mkdirs()) return null;
+        String worldName = worldDir != null ? worldDir.getName() : "unknown";
+        // bindings.json 是世界私有数据，存放在 klaymore/data/bindings/<worldName>/ 下
+        File bindingsDir = new File(new File(MinecraftDirectory.getDataDirectory(), "bindings"), worldName);
+        if (!bindingsDir.exists()) {
+            if (!bindingsDir.mkdirs()) {
+                // 回退到旧位置
+                if (worldDir != null) {
+                    File legacyDir = new File(worldDir, SAVE_SUBDIR_NAME);
+                    legacyDir.mkdirs();
+                    return new File(legacyDir, BINDINGS_FILE);
+                }
+                return null;
+            }
         }
-        return new File(klaymoreDir, BINDINGS_FILE);
+        File newFile = new File(bindingsDir, BINDINGS_FILE);
+        // 迁移：新位置不存在但旧位置存在时，复制过来
+        if (!newFile.exists() && worldDir != null) {
+            File legacyFile = new File(new File(worldDir, SAVE_SUBDIR_NAME), BINDINGS_FILE);
+            if (legacyFile.exists() && legacyFile.isFile()) {
+                try {
+                    java.nio.file.Files
+                        .copy(legacyFile.toPath(), newFile.toPath(), java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+                    System.out.println(
+                        "[Klaymore PersistenceStorage] Migrated bindings.json to new location: "
+                            + newFile.getAbsolutePath());
+                } catch (Throwable t) {
+                    System.err.println(
+                        "[Klaymore PersistenceStorage] WARN: failed to migrate bindings.json: " + t.getMessage());
+                }
+            }
+        }
+        return newFile;
     }
 
     private static File getWorldDirectorySafe() {
