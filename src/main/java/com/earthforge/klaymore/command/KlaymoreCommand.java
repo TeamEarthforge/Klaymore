@@ -24,16 +24,34 @@ public class KlaymoreCommand extends CommandBase {
 
     @Override
     public String getCommandUsage(ICommandSender sender) {
-        return "/klaymore reload [scriptName] - Hot-reload script(s) without losing data";
+        return "/klaymore <reload [scriptName]|reloadclient|list>";
     }
 
     @Override
     public void processCommand(ICommandSender sender, String[] args) {
-        if (args.length < 1 || !args[0].equalsIgnoreCase("reload")) {
-            sender.addChatMessage(new ChatComponentText("Usage: " + getCommandUsage(sender)));
+        if (args.length < 1) {
+            sender.addChatMessage(new ChatComponentText("§e用法: " + getCommandUsage(sender)));
+            sender.addChatMessage(new ChatComponentText("§e  reload [name]  - 热重载服务端脚本（保留数据）"));
+            sender.addChatMessage(new ChatComponentText("§e  reloadclient   - 重新编译所有客户端脚本"));
+            sender.addChatMessage(new ChatComponentText("§e  list           - 列出当前服务端所有脚本容器"));
             return;
         }
 
+        String sub = args[0].toLowerCase();
+
+        if (sub.equals("reload")) {
+            handleReload(sender, args);
+        } else if (sub.equals("reloadclient")) {
+            handleReloadClient(sender);
+        } else if (sub.equals("list")) {
+            handleList(sender);
+        } else {
+            sender.addChatMessage(new ChatComponentText("§c未知子命令: " + args[0]));
+            sender.addChatMessage(new ChatComponentText("§e用法: " + getCommandUsage(sender)));
+        }
+    }
+
+    private void handleReload(ICommandSender sender, String[] args) {
         // ⭐ 脚本目录是全局共享的：.minecraft/klaymore （与 saves/ 同级）
         File scriptDir = PersistenceStorage.getScriptDirectory();
         if (scriptDir == null || !scriptDir.exists() || !scriptDir.isDirectory()) {
@@ -51,6 +69,109 @@ public class KlaymoreCommand extends CommandBase {
             // 全量 reload：清预编译标记，稍后全部重新编译
             PersistenceStorage.resetPrecompileMarkers();
             reloadAllScripts(sender, scriptDir);
+        }
+    }
+
+    /** 重新编译 client/ 目录下所有脚本（清除缓存后重新编译）。 */
+    private void handleReloadClient(ICommandSender sender) {
+        File scriptDir = PersistenceStorage.getScriptDirectory();
+        if (scriptDir == null || !scriptDir.exists() || !scriptDir.isDirectory()) {
+            sender.addChatMessage(new ChatComponentText("§c脚本目录不存在: " + scriptDir));
+            return;
+        }
+
+        File clientDir = new File(scriptDir, "client");
+        if (!clientDir.exists() || !clientDir.isDirectory()) {
+            sender.addChatMessage(new ChatComponentText("§e客户端脚本目录不存在: " + clientDir.getAbsolutePath()));
+            return;
+        }
+
+        File[] clientScripts = clientDir.listFiles((dir, name) -> name.toLowerCase().endsWith(".kt"));
+        if (clientScripts == null || clientScripts.length == 0) {
+            sender.addChatMessage(new ChatComponentText("§e客户端脚本目录下没有 .kt 文件: " + clientDir.getAbsolutePath()));
+            return;
+        }
+
+        sender.addChatMessage(new ChatComponentText("§b客户端脚本目录: " + clientDir.getAbsolutePath()));
+        sender.addChatMessage(new ChatComponentText("§e开始重新编译 " + clientScripts.length + " 个客户端脚本 ..."));
+
+        // 清除所有客户端脚本的缓存，强制重新编译
+        for (File f : clientScripts) {
+            ScriptLoader.invalidateCache(f);
+        }
+        PersistenceStorage.resetPrecompileMarkers();
+
+        final AtomicInteger success = new AtomicInteger(0);
+        final AtomicInteger failed = new AtomicInteger(0);
+        final AtomicInteger done = new AtomicInteger(0);
+        final int total = clientScripts.length;
+
+        for (final File f : clientScripts) {
+            ScriptLoader.loadScriptAsync(
+                f,
+                new java.util.function.Consumer<kotlin.script.experimental.api.CompiledScript>() {
+                    @Override
+                    public void accept(kotlin.script.experimental.api.CompiledScript compiled) {
+                        if (compiled != null) {
+                            success.incrementAndGet();
+                        } else {
+                            failed.incrementAndGet();
+                            String err = ScriptErrorReporter.getLastError();
+                            sender.addChatMessage(new ChatComponentText("§c编译失败 " + f.getName() + (err != null ? ": " + err : "")));
+                        }
+                        int n = done.incrementAndGet();
+                        if (n == total) {
+                            sender.addChatMessage(
+                                new ChatComponentText(
+                                    "§a客户端脚本重新编译完成: " + success.get() + " 成功, " + failed.get() + " 失败"));
+                        }
+                    }
+                });
+        }
+    }
+
+    /** 列出当前服务端所有脚本容器。 */
+    private void handleList(ICommandSender sender) {
+        List<ScriptContainer> all = ScriptBindingManager.getContainers();
+        // 只列服务端容器
+        java.util.List<ScriptContainer> serverContainers = new java.util.ArrayList<ScriptContainer>();
+        for (ScriptContainer c : all) {
+            if (c.getSide() == null || c.getSide().isServer()) {
+                serverContainers.add(c);
+            }
+        }
+
+        if (serverContainers.isEmpty()) {
+            sender.addChatMessage(new ChatComponentText("§e当前没有服务端脚本容器。"));
+            return;
+        }
+
+        sender.addChatMessage(new ChatComponentText("§b=== 服务端脚本容器 (" + serverContainers.size() + ") ==="));
+        int idx = 1;
+        for (ScriptContainer c : serverContainers) {
+            String scriptName = c.getScriptName();
+            String path = c.getPath();
+            Object target = c.getTarget();
+            String targetDesc = target == null ? "<null>" : target.getClass().getSimpleName();
+            // 尝试显示 target 的更友好描述（如玩家名）
+            if (target instanceof net.minecraft.entity.player.EntityPlayer) {
+                targetDesc = "Player:" + ((net.minecraft.entity.player.EntityPlayer) target).getDisplayName();
+            } else if (target instanceof net.minecraft.entity.Entity) {
+                net.minecraft.entity.Entity e = (net.minecraft.entity.Entity) target;
+                targetDesc = "Entity:" + e.getClass().getSimpleName() + "#" + e.getEntityId();
+            } else if (target instanceof com.earthforge.klaymore.script.Dummy) {
+                targetDesc = "Dummy:" + ((com.earthforge.klaymore.script.Dummy) target).getId();
+            }
+
+            StringBuilder sb = new StringBuilder();
+            sb.append("§f").append(idx++).append(". ");
+            sb.append("§a").append(scriptName);
+            sb.append(" §7-> ");
+            sb.append("target=").append(targetDesc);
+            if (path != null && !path.isEmpty()) {
+                sb.append(" §7path=§e").append(path);
+            }
+            sender.addChatMessage(new ChatComponentText(sb.toString()));
         }
     }
 
