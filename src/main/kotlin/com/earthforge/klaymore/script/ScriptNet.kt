@@ -13,17 +13,16 @@ import net.minecraft.network.NetHandlerPlayServer
 /**
  * 脚本侧 C/S 通信 API。
  *
- * 通过约定方法 `bindNet(net: ScriptNet)` 注入到脚本实例。 所有方法线程安全：发送可在任意线程调用，接收 handler 统一在主线程执行。
+ * 通过 KlaymoreScript.net 字段注入到脚本实例。 所有方法线程安全：发送可在任意线程调用，接收 handler 统一在主线程执行。
  *
  * payload 统一为 Map<String, Any?>（嵌套 List/Map/基本类型/String）， 与 persistentData 的安全类型体系一致。
  *
  * 用法示例（客户端脚本）：
  *
  * ```
- * fun bindNet(net: ScriptNet) {
- *     net.on("announcement") { data, _ ->
- *         // data 是 Map<String, Any?>
- *     }
+ * // net 字段已由引擎注入
+ * net.on("announcement") { data, _ ->
+ *     // data 是 Map<String, Any?>
  * }
  * net.sendToServer("quest.update", mapOf("id" to 5))
  * ```
@@ -244,7 +243,7 @@ object ScriptNetDispatcher {
   }
 }
 
-/** 绑定到特定 ScriptContainer 的 ScriptNet 实现。 通过 bindNet 注入脚本实例，on() 注册的 handler 会跟随容器生命周期自动清理。 */
+/** 绑定到特定 ScriptContainer 的 ScriptNet 实现。 注入到 KlaymoreScript.net 字段，on() 注册的 handler 会跟随容器生命周期自动清理。 */
 internal class ScriptNetImpl(private val container: ScriptContainer) : ScriptNet {
 
   override fun sendToServer(channel: String, data: Any?) {

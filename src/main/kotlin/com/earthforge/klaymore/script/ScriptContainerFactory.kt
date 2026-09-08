@@ -202,21 +202,8 @@ object ScriptContainerFactory {
   ): Any {
     if (providedTarget is Dummy) return providedTarget
 
-    // 约定方法方式：bindTarget(Dummy)
-    val wantsDummyByMethod =
-        scriptInstance::class.java.declaredMethods.any { method ->
-          method.name == "bindTarget" &&
-              method.parameterCount == 1 &&
-              method.parameterTypes[0] == Dummy::class.java
-        }
-
-    // 字段注入方式：lateinit var target: Dummy
-    val wantsDummyByField =
-        scriptInstance::class.java.declaredFields.any { field ->
-          field.name == "target" && field.type == Dummy::class.java
-        }
-
-    if ((wantsDummyByMethod || wantsDummyByField) && providedTarget !is Dummy) {
+    // 全局脚本（覆写 isGlobal = true）不绑定具体 target，引擎分配 Dummy
+    if (scriptInstance is KlaymoreScript && scriptInstance.isGlobal) {
       return Dummy("global_${scriptName.substringBeforeLast('.')}")
     }
 
@@ -233,10 +220,6 @@ object ScriptContainerFactory {
         is ResultWithDiagnostics.Success -> {
           val kClass = classResult.value
           val rawInstance = kClass.java.getDeclaredConstructor().newInstance()
-          // 支持 `object Script { ... }` 等 Kotlin 单例写法：
-          // 如果脚本实例自己没有 bindTarget / bindContainer 等约定方法，
-          // 就遍历脚本类中所有静态 final INSTANCE 字段（Kotlin object 单例的特征），
-          // 找到一个"看起来像脚本实现"的 object，拿它作为真正的脚本实例。
           unwrapScriptObject(rawInstance, scriptName)
         }
         is ResultWithDiagnostics.Failure -> {
@@ -253,67 +236,40 @@ object ScriptContainerFactory {
     }
   }
 
-  private val CONVENTION_METHOD_NAMES = setOf("bindTarget", "bindContainer", "bindParent")
-  private val CONVENTION_FIELD_NAMES =
-      setOf("target", "container", "selfContainer", "net", "parent")
+  private fun looksLikeScriptImpl(obj: Any): Boolean =
+      KlaymoreScript::class.java.isAssignableFrom(obj.javaClass)
 
-  private fun looksLikeScriptImpl(obj: Any): Boolean {
-    val methods = obj.javaClass.declaredMethods
-    // 有任意约定方法 → 是脚本
-    if (methods.any { it.name in CONVENTION_METHOD_NAMES }) return true
-    // 有约定字段（lateinit var target / container / net 等）→ 是脚本
-    val fields = obj.javaClass.declaredFields
-    if (fields.any {
-      it.name in CONVENTION_FIELD_NAMES && !java.lang.reflect.Modifier.isStatic(it.modifiers)
-    })
-        return true
-    // 有 @Subscribe 方法 → 是脚本
-    return try {
-      val subscribeAnno =
-          Class.forName("com.earthforge.klaymore.script.Subscribe", true, Launch.classLoader)
-      methods.any { m -> m.annotations.any { it.annotationClass.java == subscribeAnno } }
-    } catch (_: Throwable) {
-      false
-    }
-  }
-
-  private fun unwrapScriptObject(rawInstance: Any, scriptName: String): Any {
-    // 先看外壳本身是不是脚本实现
+  /**
+   * 从脚本编译产物的外壳类中，找到继承 [KlaymoreScript] 的嵌套类并实例化。
+   *
+   * Kotlin 脚本编译后会生成一个外壳类，用户写的 `class Soldier : KlaymoreScript()`
+   * 会成为该外壳类的嵌套类。这里扫描所有嵌套类，找到第一个继承 KlaymoreScript 的，
+   * 通过无参构造 newInstance() 返回全新实例（每个 spawnChild 调用产生独立实例）。
+   */
+  private fun unwrapScriptObject(rawInstance: Any, scriptName: String): Any? {
     if (looksLikeScriptImpl(rawInstance)) return rawInstance
 
-    // 再扫描所有嵌套 Kotlin object 单例（静态 INSTANCE 字段）
     val rawClass = rawInstance.javaClass
     try {
       for (declaredClass in rawClass.declaredClasses) {
+        if (!KlaymoreScript::class.java.isAssignableFrom(declaredClass)) continue
         try {
-          val instanceField =
-              try {
-                declaredClass.getField("INSTANCE")
-              } catch (_: NoSuchFieldException) {
-                continue
-              }
-          val mods = instanceField.modifiers
-          if (!java.lang.reflect.Modifier.isStatic(mods) ||
-              !java.lang.reflect.Modifier.isFinal(mods))
-              continue
-          instanceField.isAccessible = true
-          val obj = instanceField.get(null) ?: continue
-          if (looksLikeScriptImpl(obj)) {
-            println(
-                "[Klaymore ScriptFactory] Detected Kotlin 'object' wrapper in " +
-                    "$scriptName, using ${declaredClass.simpleName}.INSTANCE as actual script instance")
-            return obj
-          }
-        } catch (_: Throwable) {
-          // ignore this inner class, try next
+          val ctor = declaredClass.getDeclaredConstructor()
+          ctor.isAccessible = true
+          return ctor.newInstance()
+        } catch (e: Throwable) {
+          ScriptErrorReporter.report(
+              "实例化脚本类 ${declaredClass.simpleName} 失败（需无参构造）: ${e.message}")
         }
       }
     } catch (_: Throwable) {
       // ignore
     }
 
-    // 什么都没找到，就返回原实例
-    return rawInstance
+    ScriptErrorReporter.report(
+        "脚本 $scriptName 中未找到继承 KlaymoreScript 的类。" +
+            "脚本必须包含形如 'class Xxx : KlaymoreScript()' 的声明。")
+    return null
   }
 
   @JvmStatic

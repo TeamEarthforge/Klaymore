@@ -238,45 +238,7 @@ class ScriptContainer(
 }
 
 object ScriptInjectionUtils {
-  @JvmStatic
-  fun invokeConventionMethod(instance: Any, methodName: String, arg: Any?) {
-    if (arg == null) return
-    val argClass = arg.javaClass
-    val methods =
-        instance::class.java.declaredMethods.filter {
-          it.name == methodName && it.parameterCount == 1
-        }
-
-    val sortedMethods =
-        methods.sortedWith(
-            compareBy { method ->
-              val paramType = method.parameterTypes[0]
-              when {
-                paramType == argClass -> 0
-                paramType.isAssignableFrom(argClass) -> 1
-                paramType == Any::class.java -> 2
-                else -> 3
-              }
-            })
-
-    val targetMethod = sortedMethods.firstOrNull() ?: return
-
-    try {
-      targetMethod.isAccessible = true
-      targetMethod.invoke(instance, arg)
-    } catch (e: Exception) {
-      ScriptErrorReporter.report("调用约定方法 $methodName 失败: ${e.message}")
-    }
-  }
-
-  /**
-   * 通过反射向脚本实例注入字段（lateinit var）。
-   *
-   * 设计目标（见 Klaymore 方案 §3.2 / §5.2）：
-   * - 弃用 bindTarget() / bindContainer() / bindParent() 等模板代码， 改为脚本直接声明 `lateinit var target: Any`
-   *   等字段，引擎通过反射注入。
-   * - 注入顺序：target → container → parent → net（net 必须最后，因为脚本可能在 net 初始化时立刻注册 handler）。
-   */
+  /** 通过反射向脚本实例注入字段（target / container / net 等，定义在 KlaymoreScript 基类中）。 */
   @JvmStatic
   fun injectFields(instance: Any, target: Any?, parentTarget: Any?, container: ScriptContainer) {
     val net = ScriptNetImpl(container)
@@ -287,7 +249,12 @@ object ScriptInjectionUtils {
     setFieldIfAssignable(instance, "net", net, ScriptNet::class.java)
   }
 
-  /** 如果实例中存在可赋值的同名字段，则注入值。 支持 lateinit var（其底层字段为 null，set 后即非 null）。 */
+  /**
+   * 沿继承链查找非静态同名字段并注入值。
+   *
+   * 字段定义在 [KlaymoreScript] 基类中，子类的 declaredFields 不包含父类字段，
+   * 因此需要向上遍历继承链直到找到目标字段。
+   */
   private fun setFieldIfAssignable(
       instance: Any,
       fieldName: String,
@@ -295,16 +262,30 @@ object ScriptInjectionUtils {
       expectedType: Class<*>
   ) {
     try {
-      val field =
-          instance::class.java.declaredFields.firstOrNull {
-            it.name == fieldName && !java.lang.reflect.Modifier.isStatic(it.modifiers)
-          } ?: return
+      val field = findFieldInHierarchy(instance.javaClass, fieldName) ?: return
       if (!field.type.isAssignableFrom(expectedType) && expectedType != Any::class.java) return
       field.isAccessible = true
       field.set(instance, value)
     } catch (e: Throwable) {
-      // lateinit var 注入失败时静默忽略（脚本可能未声明该字段）
+      // 注入失败时静默忽略
     }
+  }
+
+  private fun findFieldInHierarchy(
+      clazz: Class<*>,
+      fieldName: String
+  ): java.lang.reflect.Field? {
+    var current: Class<*>? = clazz
+    while (current != null && current != Any::class.java) {
+      try {
+        val field = current.getDeclaredField(fieldName)
+        if (!java.lang.reflect.Modifier.isStatic(field.modifiers)) return field
+      } catch (_: NoSuchFieldException) {
+        // 继续向上找父类
+      }
+      current = current.superclass
+    }
+    return null
   }
 
   @JvmStatic
@@ -314,15 +295,7 @@ object ScriptInjectionUtils {
       parentTarget: Any?,
       container: ScriptContainer
   ) {
-    // 优先使用字段注入（新方案）
     injectFields(instance, target, parentTarget, container)
-    // 同时调用约定方法（向后兼容旧脚本）
-    invokeConventionMethod(instance, "bindTarget", target)
-    invokeConventionMethod(instance, "bindParent", parentTarget)
-    invokeConventionMethod(instance, "bindContainer", container)
-    // bindNet 必须最后注入：脚本可能在 bindNet 里立即调用 net.on(...) 注册 handler，
-    // 此时 container 已就绪，ScriptNetImpl 能正确关联生命周期
-    invokeConventionMethod(instance, "bindNet", ScriptNetImpl(container))
   }
 
   @JvmStatic
