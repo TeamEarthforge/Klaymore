@@ -219,7 +219,7 @@ object ScriptContainerFactory {
       when (classResult) {
         is ResultWithDiagnostics.Success -> {
           val kClass = classResult.value
-          val rawInstance = kClass.java.getDeclaredConstructor().newInstance()
+          val rawInstance = instantiateKClass(kClass.java) ?: return null
           unwrapScriptObject(rawInstance, scriptName)
         }
         is ResultWithDiagnostics.Failure -> {
@@ -233,6 +233,33 @@ object ScriptContainerFactory {
       null
     } finally {
       Thread.currentThread().contextClassLoader = originalLoader
+    }
+  }
+
+  /**
+   * 实例化脚本类。
+   *
+   * 支持两种脚本声明方式：
+   * - `class Foo : KlaymoreScript()` → 调用无参构造创建新实例（每个 spawnChild 产生独立实例）
+   * - `object Foo : KlaymoreScript()` → 返回单例 INSTANCE
+   */
+  private fun instantiateKClass(clazz: Class<*>): Any? {
+    // 先尝试无参构造（class 声明）
+    try {
+      val ctor = clazz.getDeclaredConstructor()
+      ctor.isAccessible = true
+      return ctor.newInstance()
+    } catch (_: Throwable) {
+      // 无参构造不可用 → 尝试 object 单例（INSTANCE 字段）
+    }
+    try {
+      val instanceField = clazz.getField("INSTANCE")
+      return instanceField.get(null)
+    } catch (e: Throwable) {
+      ScriptErrorReporter.report(
+          "无法实例化脚本类 ${clazz.simpleName}：既无无参构造也非 object 单例。" +
+              "请使用 'class Xxx : KlaymoreScript()' 或 'object Xxx : KlaymoreScript()'。")
+      return null
     }
   }
 

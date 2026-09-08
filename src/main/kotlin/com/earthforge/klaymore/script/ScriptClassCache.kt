@@ -388,7 +388,7 @@ private class ScriptCacheClassLoader(
 }
 
 /** 用已加载的 KClass 包装成 CompiledScript，供上层（instantiateScript 等）直接使用。 */
-private class CachedCompiledScript(private val kClass: KClass<*>) : CompiledScript {
+internal class CachedCompiledScript(private val kClass: KClass<*>) : CompiledScript {
   override val otherScripts: List<CompiledScript> = emptyList()
 
   // 上层只用到 getClass()，compilationConfiguration 给个空配置即可

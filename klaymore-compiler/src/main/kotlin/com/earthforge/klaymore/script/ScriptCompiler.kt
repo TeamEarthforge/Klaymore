@@ -14,6 +14,8 @@ import kotlin.script.experimental.jvm.jvmTarget
 import kotlin.script.experimental.jvm.updateClasspath
 import kotlin.script.experimental.jvmhost.JvmScriptCompiler
 import kotlinx.coroutines.runBlocking
+import org.jetbrains.kotlin.cli.common.ExitCode
+import org.jetbrains.kotlin.cli.jvm.K2JVMCompiler
 
 /**
  * Kotlin 脚本编译器实现。
@@ -151,34 +153,7 @@ class ScriptCompiler : ScriptCompilerBridge {
       // 在正确的 classloader 上下文下惰性创建编译器（首次调用时创建）
       val compilerInstance = getOrCreateCompiler()
 
-      // 手动提取所有类路径（包含 Forge/Minecraft 所有 JAR）
-      val launchClasspath = extractClasspathFromLoader(launchCl)
-
-      // 从加载编译器的 classloader 提取 Kotlin 运行时/脚本 API/编译器依赖
-      // （klaymore-runtime-compiler.jar 内含 kotlin-compiler-embeddable 等）
-      val compilerClasspath = extractClasspathFromLoader(javaClass.classLoader)
-
-      // ⭐ 关键：把所有原版 minecraft jar 替换成 SRG 命名的 dummy jar。
-      //   注意不能用 dependenciesFromCurrentContext(wholeClasspath=true)，
-      //   因为那会把 LaunchClassLoader 里的 notch 命名 minecraft 类也拉进来，
-      //   导致和 SRG 命名的类冲突、方法解析失败。
-      val srgJar = srgMinecraftJar()
-      val merged = LinkedHashSet<File>()
-      val replaced = ArrayList<File>()
-      for (f in compilerClasspath + launchClasspath) {
-        if (isMcOrForgeJar(f)) {
-          replaced.add(f)
-        } else {
-          merged.add(f.absoluteFile)
-        }
-      }
-      merged.add(srgJar)
-      val classpathFiles = merged.toList()
-      println("=== Replaced ${replaced.size} minecraft jar(s) with SRG dummy ===")
-      replaced.distinctBy { it.name }.forEach { println("  - removed: ${it.name}") }
-      println("  + added:   ${srgJar.name}")
-      println("=== Final classpath has ${classpathFiles.size} entries ===")
-      classpathFiles.take(10).forEach { println("  - ${it.absolutePath}") }
+      val classpathFiles = buildCompilationClasspath()
 
       // 构建编译配置：只用手动构建的 classpath（全 SRG 命名 + Kotlin 依赖）
       val config = ScriptCompilationConfiguration {
@@ -186,18 +161,6 @@ class ScriptCompiler : ScriptCompilerBridge {
           jvmTarget("1.8")
           updateClasspath(classpathFiles)
         }
-      }
-
-      // 调试：打印配置中的最终类路径（反射获取）
-      try {
-        val cpField = config.javaClass.getDeclaredField("classpath")
-        cpField.isAccessible = true
-        val cp = cpField.get(config)
-        println(
-            "=== Final classpath in config (${(cp as? Collection<*>)?.size ?: "unknown"} entries) ===")
-        (cp as? Collection<*>)?.take(10)?.forEach { println("  - $it") }
-      } catch (_: Exception) {
-        /* ignore */
       }
 
       println("[Klaymore] Compiling script: ${scriptFile.absolutePath}")
@@ -211,6 +174,99 @@ class ScriptCompiler : ScriptCompilerBridge {
     } finally {
       Thread.currentThread().contextClassLoader = originalClassLoader
     }
+  }
+
+  /**
+   * 批量编译一个目录下的所有 .kt 脚本。
+   *
+   * 使用 K2JVMCompiler（标准 Kotlin 编译器）将目录内所有 .kt 文件作为一个编译单元一起编译，
+   * 这样脚本 A 中定义的类可以被脚本 B 直接引用（同包内互相引用）。
+   *
+   * 编译产物输出到临时目录，读取所有 .class 文件字节码后返回。
+   */
+  override fun compileBatch(directory: File): BatchCompileResult? {
+    val originalClassLoader = Thread.currentThread().contextClassLoader
+    return try {
+      val launchCl = launchClassLoader()
+      Thread.currentThread().contextClassLoader = launchCl
+
+      val ktFiles =
+          directory.listFiles { f -> f.isFile && f.extension.equals("kt", ignoreCase = true) }
+              ?: return BatchCompileResult(emptyMap(), true, null)
+      if (ktFiles.isEmpty()) return BatchCompileResult(emptyMap(), true, null)
+
+      val classpathFiles = buildCompilationClasspath()
+      val classpathStr = classpathFiles.joinToString(File.pathSeparator) { it.absolutePath }
+
+      val outputDir = createTempDir("klaymore-batch-out")
+      outputDir.deleteOnExit()
+
+      val args =
+          arrayOf(
+              "-classpath",
+              classpathStr,
+              "-d",
+              outputDir.absolutePath,
+              "-jvm-target",
+              "1.8",
+              *ktFiles.map { it.absolutePath }.toTypedArray())
+
+      println(
+          "[Klaymore] Batch compiling ${ktFiles.size} scripts in ${directory.absolutePath}")
+
+      val compiler = K2JVMCompiler()
+      val errStream = java.io.ByteArrayOutputStream()
+      val exitCode = compiler.exec(java.io.PrintStream(errStream, true), *args)
+
+      if (exitCode != ExitCode.OK) {
+        val msg = errStream.toString(Charsets.UTF_8.name())
+        System.err.println("[Klaymore] Batch compile FAILED for ${directory.name}:")
+        System.err.println(msg)
+        return BatchCompileResult(emptyMap(), false, msg)
+      }
+
+      // 读取所有生成的 .class 文件
+      val classBytes = LinkedHashMap<String, ByteArray>()
+      outputDir.walkTopDown().forEach { f ->
+        if (f.isFile && f.extension.equals("class", ignoreCase = true)) {
+          val relative = f.relativeTo(outputDir).path
+          val className =
+              relative.removeSuffix(".class").replace(File.separatorChar, '.').replace('/', '.')
+          classBytes[className] = f.readBytes()
+        }
+      }
+
+      println(
+          "[Klaymore] Batch compile OK: ${classBytes.size} classes from ${directory.name}")
+      BatchCompileResult(classBytes, true, null)
+    } catch (e: Throwable) {
+      System.err.println(
+          "[Klaymore] ScriptCompiler.compileBatch EXCEPTION for ${directory.name}: ${e.message}")
+      e.printStackTrace(System.err)
+      BatchCompileResult(emptyMap(), false, e.message)
+    } finally {
+      Thread.currentThread().contextClassLoader = originalClassLoader
+    }
+  }
+
+  /**
+   * 构建编译用 classpath：合并 Launch.classLoader 与编译器类加载器的所有 jar，
+   * 将 MC/Forge 的 notch 命名 jar 替换为 SRG dummy jar，避免命名冲突。
+   */
+  private fun buildCompilationClasspath(): List<File> {
+    val launchCl = launchClassLoader()
+    val launchClasspath = extractClasspathFromLoader(launchCl)
+    val compilerClasspath = extractClasspathFromLoader(javaClass.classLoader)
+
+    val srgJar = srgMinecraftJar()
+    val merged = LinkedHashSet<File>()
+    for (f in compilerClasspath + launchClasspath) {
+      if (!isMcOrForgeJar(f)) {
+        merged.add(f.absoluteFile)
+      }
+    }
+    merged.add(srgJar)
+    return merged.toList()
   }
 
   override fun compileAsync(

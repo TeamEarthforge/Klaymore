@@ -22,7 +22,29 @@ interface ScriptCompilerBridge {
 
   /** 异步编译脚本，编译完成后在调用线程回调。 */
   fun compileAsync(scriptFile: File, callback: (ResultWithDiagnostics<CompiledScript>?) -> Unit)
+
+  /**
+   * 批量编译一个目录下的所有 .kt 脚本。
+   *
+   * 同一目录内的脚本会作为一个编译单元一起编译，因此脚本 A 中定义的类可以被脚本 B 直接引用。
+   *
+   * @return 编译成功返回 [BatchCompileResult]（含所有生成类的字节码）；失败返回 null。
+   */
+  fun compileBatch(directory: File): BatchCompileResult?
 }
+
+/**
+ * 批量编译结果。
+ *
+ * @property classBytes 所有生成类的字节码，key 为 JVM 内部类名（点分包名，嵌套类用 `$` 分隔）。
+ * @property success 编译是否成功。
+ * @property errorMessage 失败时的错误信息（成功时为 null）。
+ */
+data class BatchCompileResult(
+    val classBytes: Map<String, ByteArray>,
+    val success: Boolean,
+    val errorMessage: String?
+)
 
 /**
  * 全局编译器实例持有者。
