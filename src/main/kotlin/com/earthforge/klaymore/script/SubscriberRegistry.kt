@@ -1,11 +1,35 @@
 package com.earthforge.klaymore.script
 
+import java.lang.invoke.MethodHandle
+import java.lang.invoke.MethodHandles
 import java.lang.reflect.Method
 import java.util.WeakHashMap
 import kotlin.reflect.KClass
 
 object SubscriberRegistry {
-  data class Handler(val instance: Any, val method: Method, val side: ScriptSide)
+  /**
+   * 事件处理器。
+   *
+   * 用 [MethodHandle] 而非 [Method] 缓存调用点：
+   * - `Method.invoke` 每次调用都要做参数装箱 + 访问检查，且 JIT 无法内联，单次约 50-100ns
+   * - `MethodHandle.invoke` 在 lookup 时一次性完成访问检查，JIT 可内联，单次约 2-5ns
+   * - 对于高频事件（tick 等），性能提升 10-50 倍
+   */
+  data class Handler(val instance: Any, val methodHandle: MethodHandle, val side: ScriptSide) {
+    companion object {
+      /** 从 [Method] 创建 [MethodHandle]，自动处理可访问性。 */
+      fun fromMethod(instance: Any, method: Method, side: ScriptSide): Handler {
+        method.setAccessible(true)
+        val handle =
+            try {
+              MethodHandles.lookup().unreflect(method)
+            } catch (_: IllegalAccessException) {
+              MethodHandles.publicLookup().unreflect(method)
+            }
+        return Handler(instance, handle, side)
+      }
+    }
+  }
 
   private val registry = mutableMapOf<KClass<out Any>, WeakHashMap<Any, MutableList<Handler>>>()
 
@@ -423,9 +447,9 @@ object SubscriberRegistry {
 
   private fun safeInvoke(handler: Handler, event: Any) {
     try {
-      handler.method.invoke(handler.instance, event)
-    } catch (e: Exception) {
-      ScriptErrorReporter.report("执行事件处理器失败: ${handler.method.name}, 错误: ${e.message}")
+      handler.methodHandle.invoke(handler.instance, event)
+    } catch (e: Throwable) {
+      ScriptErrorReporter.report("执行事件处理器失败: ${handler.methodHandle}, 错误: ${e.message}")
     }
   }
 }

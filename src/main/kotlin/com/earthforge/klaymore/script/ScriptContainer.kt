@@ -325,7 +325,7 @@ object ScriptInjectionUtils {
       SubscriberRegistry.register(
           eventType = annotation.event,
           target = target,
-          handler = SubscriberRegistry.Handler(instance, method, side))
+          handler = SubscriberRegistry.Handler.fromMethod(instance, method, side))
     }
   }
 }
