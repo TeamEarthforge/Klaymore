@@ -35,6 +35,7 @@ public final class MinecraftDirectory {
     private static final String DATA_DIRNAME = "data";
     private static final String SCRIPT_DIRNAME = "script";
     private static final String CACHE_DIRNAME = "cache";
+    private static final String ASSETS_DIRNAME = "assets";
 
     private MinecraftDirectory() {}
 
@@ -90,6 +91,19 @@ public final class MinecraftDirectory {
      */
     public static File getCacheDirectory() {
         File dir = new File(getKlaymoreRoot(), CACHE_DIRNAME);
+        ensureDir(dir);
+        return dir;
+    }
+
+    /**
+     * 资源目录 = <mcRoot>/klaymore/assets
+     *
+     * 此目录被当作一个 MC 资源包根来使用：里面可以有任意命名空间子目录
+     * （assets/&lt;namespace&gt;/textures/...、assets/&lt;namespace&gt;/lang/... 等），
+     * 通过 KlaymoreResourceListener 注入到客户端资源管理器，F3+T 可重载。
+     */
+    public static File getAssetsDirectory() {
+        File dir = new File(getKlaymoreRoot(), ASSETS_DIRNAME);
         ensureDir(dir);
         return dir;
     }

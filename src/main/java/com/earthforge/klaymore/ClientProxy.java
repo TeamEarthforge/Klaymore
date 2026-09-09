@@ -1,5 +1,6 @@
 package com.earthforge.klaymore;
 
+import com.earthforge.klaymore.client.KlaymoreResourceListener;
 import com.earthforge.klaymore.script.GlobalRoot;
 
 import cpw.mods.fml.common.event.FMLInitializationEvent;
@@ -18,6 +19,14 @@ public class ClientProxy extends CommonProxy {
             GlobalRoot.mountClientIfPresent();
         } catch (Throwable t) {
             System.err.println("[Klaymore ClientProxy] Failed to mount client Root.kt: " + t.getMessage());
+        }
+
+        // 把 <mcRoot>/klaymore/assets/ 注入为 MC 资源包，F3+T 可重载。
+        // 必须在 Minecraft.getMinecraft() 可用后调用，init 阶段满足此条件。
+        try {
+            KlaymoreResourceListener.register();
+        } catch (Throwable t) {
+            Klaymore.LOG.error("[Klaymore ClientProxy] Failed to register resource listener: " + t.getMessage(), t);
         }
     }
 }
