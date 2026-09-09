@@ -184,7 +184,13 @@ class ScriptCompiler : ScriptCompilerBridge {
    *
    * 编译产物输出到临时目录，读取所有 .class 文件字节码后返回。
    */
-  override fun compileBatch(directory: File): BatchCompileResult? {
+  override fun compileBatch(directory: File): BatchCompileResult? =
+      compileBatch(directory, emptyList())
+
+  /**
+   * 批量编译，支持额外 classpath（用于让 server/client 脚本引用 common/ 已编译类）。
+   */
+  override fun compileBatch(directory: File, extraClasspath: List<File>): BatchCompileResult? {
     val originalClassLoader = Thread.currentThread().contextClassLoader
     return try {
       val launchCl = launchClassLoader()
@@ -195,7 +201,7 @@ class ScriptCompiler : ScriptCompilerBridge {
               ?: return BatchCompileResult(emptyMap(), true, null)
       if (ktFiles.isEmpty()) return BatchCompileResult(emptyMap(), true, null)
 
-      val classpathFiles = buildCompilationClasspath()
+      val classpathFiles = buildCompilationClasspath() + extraClasspath.filter { it.exists() }
       val classpathStr = classpathFiles.joinToString(File.pathSeparator) { it.absolutePath }
 
       val outputDir = createTempDir("klaymore-batch-out")
@@ -212,7 +218,8 @@ class ScriptCompiler : ScriptCompilerBridge {
               *ktFiles.map { it.absolutePath }.toTypedArray())
 
       println(
-          "[Klaymore] Batch compiling ${ktFiles.size} scripts in ${directory.absolutePath}")
+          "[Klaymore] Batch compiling ${ktFiles.size} scripts in ${directory.absolutePath}" +
+              (if (extraClasspath.isNotEmpty()) " (with ${extraClasspath.size} extra classpath entries)" else ""))
 
       val compiler = K2JVMCompiler()
       val errStream = java.io.ByteArrayOutputStream()

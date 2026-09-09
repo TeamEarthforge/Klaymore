@@ -214,9 +214,11 @@ public final class PersistenceStorage {
         final List<File> toCompile = new ArrayList<File>();
         // 扫描全局脚本目录本身（兼容旧版直接放根目录的 .kt）
         collectKtsFiles(scriptDir, toCompile, false);
-        // 扫描 server/ 和 client/ 子目录
+        // 扫描 common/ server/ 和 client/ 子目录
+        File commonDir = new File(scriptDir, "common");
         File serverDir = new File(scriptDir, "server");
         File clientDir = new File(scriptDir, "client");
+        collectKtsFiles(commonDir, toCompile, true);
         collectKtsFiles(serverDir, toCompile, true);
         collectKtsFiles(clientDir, toCompile, true);
 

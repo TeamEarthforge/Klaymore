@@ -36,4 +36,15 @@ abstract class KlaymoreScript {
    * 默认 false；需要时覆写为 true（如 Root.kt、System 脚本等）。
    */
   open val isGlobal: Boolean = false
+
+  /**
+   * 注册阶段回调（preInit 阶段执行）。
+   *
+   * 只有 common/ 目录下的脚本会在 preInit 阶段被实例化并调用此方法，
+   * 用于注册物品、方块等必须在游戏初始化早期完成的内容。
+   *
+   * 此方法执行时 target / container 等字段尚未注入，不要依赖它们。
+   * 可通过 [com.earthforge.klaymore.util.Registries] 完成物品/方块注册。
+   */
+  open fun onRegister() {}
 }

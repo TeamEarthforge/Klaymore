@@ -1,5 +1,6 @@
 package com.earthforge.klaymore.script
 
+import com.earthforge.klaymore.MinecraftDirectory
 import java.io.ByteArrayInputStream
 import java.io.DataInputStream
 import java.io.File
@@ -17,6 +18,26 @@ object ScriptLoader {
 
   /** 已批量编译的目录 → 该目录所有类共享的 ClassLoader（同目录脚本可互相引用）。 */
   private val batchDirLoaders = mutableMapOf<String, ClassLoader>()
+
+  /**
+   * common/ 目录编译产物的共享 ClassLoader。
+   *
+   * 所有 server/ 和 client/ 的 ClassLoader 都以此为父加载器，
+   * 因此 common/ 里定义的类在 JVM 中只存在一份，跨目录可直接引用、可互相转型。
+   */
+  @Volatile
+  private var commonClassLoader: ClassLoader? = null
+
+  /**
+   * common/ 编译输出目录（持久化到 cache/common-classes/），
+   * 编译 server/client 脚本时把此目录加到 classpath，让编译器能解析 common 类。
+   */
+  @Volatile
+  private var commonClasspathDir: File? = null
+
+  /** common/ 目录是否已尝试加载过（避免重复编译）。 */
+  @Volatile
+  private var commonLoaded: Boolean = false
 
   /** 异步编译/加载专用单线程执行器，避免多线程并发修改缓存。 */
   private val asyncExecutor =
@@ -129,15 +150,23 @@ object ScriptLoader {
    *
    * 同目录内所有脚本共享一个 ClassLoader，因此脚本 A 定义的类可被脚本 B 直接引用。
    *
+   * 若 common/ 目录存在且已编译，当前目录的 ClassLoader 会以 commonClassLoader 为父加载器，
+   * 这样当前目录的脚本可以直接引用 common/ 里定义的类。
+   *
    * @return 批量编译成功且目录内至少有一个脚本被缓存 → true；否则 false。
    */
   private fun loadBatchDirectory(directory: File, bridge: ScriptCompilerBridge): Boolean {
     val batchKey = directory.absolutePath
     if (batchDirLoaders.containsKey(batchKey)) return true
 
+    // 确保 common/ 已加载（作为 classpath 依赖 + 父加载器）
+    ensureCommonLoaded(bridge)
+
+    val extraClasspath = commonClasspathDir?.let { listOf(it) } ?: emptyList()
+
     val result =
         try {
-          bridge.compileBatch(directory)
+          bridge.compileBatch(directory, extraClasspath)
         } catch (t: Throwable) {
           System.err.println("[Klaymore] compileBatch threw: ${t.message}")
           null
@@ -150,8 +179,10 @@ object ScriptLoader {
       return false
     }
 
-    // 用所有类字节码创建一个共享 ClassLoader（父加载器为 Launch.classLoader）
-    val classLoader = BatchClassLoader(result.classBytes, Launch.classLoader)
+    // 用所有类字节码创建共享 ClassLoader，父加载器优先用 commonClassLoader（让 common 类共享），
+    // 否则回退到 Launch.classLoader。
+    val parent = commonClassLoader ?: Launch.classLoader
+    val classLoader = BatchClassLoader(result.classBytes, parent)
     batchDirLoaders[batchKey] = classLoader
 
     // 扫描所有类，找到 KlaymoreScript 子类，并通过 SourceFile 属性映射回源文件
@@ -172,6 +203,118 @@ object ScriptLoader {
         "[Klaymore] Batch loaded ${cachedCount} script(s) from ${directory.name} " +
             "(${result.classBytes.size} classes total)")
     return cachedCount > 0
+  }
+
+  // ================================================================================
+  //  common/ 目录加载与注册阶段
+  // ================================================================================
+
+  /**
+   * 确保 common/ 目录已编译并加载到 [commonClassLoader]。
+   *
+   * 幂等：多次调用只编译一次。
+   */
+  @Synchronized
+  private fun ensureCommonLoaded(bridge: ScriptCompilerBridge) {
+    if (commonLoaded) return
+    commonLoaded = true
+
+    val commonDir = MinecraftDirectory.getCommonScriptDirectory()
+    if (!commonDir.isDirectory) {
+      println("[Klaymore] common/ script directory not found, skipping common load.")
+      return
+    }
+
+    val ktFiles = commonDir.listFiles { f -> f.isFile && f.extension.equals("kt", ignoreCase = true) }
+    if (ktFiles == null || ktFiles.isEmpty()) {
+      println("[Klaymore] common/ directory has no .kt files, skipping common load.")
+      return
+    }
+
+    val result =
+        try {
+          bridge.compileBatch(commonDir)
+        } catch (t: Throwable) {
+          System.err.println("[Klaymore] common compileBatch threw: ${t.message}")
+          null
+        }
+
+    if (result == null || !result.success) {
+      val msg = result?.errorMessage ?: "common 编译失败"
+      System.err.println("[Klaymore] Common script compile FAILED: $msg")
+      return
+    }
+
+    // 把 common 类字节码写到持久化目录，供 server/client 编译时作为 classpath
+    val outDir = File(MinecraftDirectory.getCacheDirectory(), "common-classes")
+    if (outDir.exists()) outDir.deleteRecursively()
+    outDir.mkdirs()
+    for ((className, bytes) in result.classBytes) {
+      val classFile = File(outDir, className.replace('.', File.separatorChar) + ".class")
+      classFile.parentFile?.mkdirs()
+      classFile.writeBytes(bytes)
+    }
+    commonClasspathDir = outDir
+
+    // 创建共享 ClassLoader，父加载器为 Launch.classLoader
+    commonClassLoader = BatchClassLoader(result.classBytes, Launch.classLoader)
+
+    println(
+        "[Klaymore] Common scripts loaded: ${result.classBytes.size} classes -> shared ClassLoader ready")
+  }
+
+  /**
+   * 编译 common/ 目录，实例化其中所有 [KlaymoreScript] 子类并调用 [KlaymoreScript.onRegister]。
+   *
+   * 在 preInit 阶段调用，用于完成物品/方块等早期注册。
+   *
+   * @return 成功执行 onRegister 的脚本数量
+   */
+  @JvmStatic
+  @Synchronized
+  fun runCommonRegistration(): Int {
+    val bridge = ScriptCompilerHolder.instance
+    if (bridge == null) {
+      System.err.println(
+          "[Klaymore] Cannot run common registration: ScriptCompilerBridge not available. " +
+              "Install klaymore-compiler.jar or pre-compile scripts.")
+      return 0
+    }
+
+    ensureCommonLoaded(bridge)
+
+    val cl = commonClassLoader ?: return 0
+    val commonDir = MinecraftDirectory.getCommonScriptDirectory()
+
+    // 重新拿 common 的 classBytes（从 commonClasspathDir 读），找到 KlaymoreScript 子类
+    val classBytes = LinkedHashMap<String, ByteArray>()
+    val outDir = commonClasspathDir ?: return 0
+    outDir.walkTopDown().forEach { f ->
+      if (f.isFile && f.extension.equals("class", ignoreCase = true)) {
+        val relative = f.relativeTo(outDir).path
+        val className =
+            relative.removeSuffix(".class").replace(File.separatorChar, '.').replace('/', '.')
+        classBytes[className] = f.readBytes()
+      }
+    }
+
+    val scriptClasses = findScriptClassesByFile(classBytes, cl)
+    var count = 0
+    for ((fileName, kClass) in scriptClasses) {
+      try {
+        val instance = kClass.java.getDeclaredConstructor().newInstance()
+        if (instance is KlaymoreScript) {
+          instance.onRegister()
+          count++
+          println("[Klaymore] onRegister() executed for common script: $fileName")
+        }
+      } catch (t: Throwable) {
+        System.err.println(
+            "[Klaymore] Failed to run onRegister() for common script $fileName: ${t.message}")
+        t.printStackTrace(System.err)
+      }
+    }
+    return count
   }
 
   /**
@@ -329,6 +472,9 @@ object ScriptLoader {
     compileCache.clear()
     lastModifiedCache.clear()
     batchDirLoaders.clear()
+    commonClassLoader = null
+    commonClasspathDir = null
+    commonLoaded = false
   }
 
   /**
@@ -359,9 +505,26 @@ object ScriptLoader {
     val path = scriptFile.absolutePath
     compileCache.remove(path)
     lastModifiedCache.remove(path)
-    // 单文件失效时，同时清除其所在目录的批量编译缓存，
-    // 确保下次加载时整个目录重新编译（脚本间引用关系可能已变化）。
-    scriptFile.parentFile?.let { batchDirLoaders.remove(it.absolutePath) }
+
+    // 如果修改的是 common/ 目录下的脚本，需要清空所有缓存（common 变了，所有依赖它的目录都要重编译）
+    val commonDir = MinecraftDirectory.getCommonScriptDirectory()
+    val isCommon = try {
+      scriptFile.canonicalPath.startsWith(commonDir.canonicalPath)
+    } catch (_: Throwable) {
+      false
+    }
+    if (isCommon) {
+      println("[Klaymore] common script modified, clearing all batch caches: ${scriptFile.name}")
+      batchDirLoaders.clear()
+      commonClassLoader = null
+      commonClasspathDir = null
+      commonLoaded = false
+    } else {
+      // 单文件失效时，同时清除其所在目录的批量编译缓存，
+      // 确保下次加载时整个目录重新编译（脚本间引用关系可能已变化）。
+      scriptFile.parentFile?.let { batchDirLoaders.remove(it.absolutePath) }
+    }
+
     // 同时清掉磁盘缓存，确保下次加载重新编译（用于 /klaymore reload 等场景）
     ScriptClassCache.invalidate(scriptFile)
   }

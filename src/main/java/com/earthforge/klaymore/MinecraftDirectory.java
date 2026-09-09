@@ -85,6 +85,17 @@ public final class MinecraftDirectory {
     }
 
     /**
+     * common 脚本目录 = <mcRoot>/klaymore/script/common
+     * 存放双端共享的脚本（物品/方块注册、通用工具类等），编译后作为共享类加载器，
+     * server/ 和 client/ 目录的脚本都能直接引用其中的类。
+     */
+    public static File getCommonScriptDirectory() {
+        File dir = new File(getScriptDirectory(), "common");
+        ensureDir(dir);
+        return dir;
+    }
+
+    /**
      * 缓存目录 = <mcRoot>/klaymore/cache
      * 编译产物（.class 字节码）等可丢弃的中间数据放在这里，与脚本目录分开，
      * 避免污染源码目录。

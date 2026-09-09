@@ -13,6 +13,7 @@ import com.earthforge.klaymore.script.EventTargetRegistrar;
 import com.earthforge.klaymore.script.GlobalRoot;
 import com.earthforge.klaymore.script.KotlinPreloader;
 import com.earthforge.klaymore.script.PersistenceStorage;
+import com.earthforge.klaymore.script.ScriptLoader;
 import com.earthforge.klaymore.script.SubscriberRegistry;
 
 import cpw.mods.fml.common.FMLCommonHandler;
@@ -253,6 +254,21 @@ public class Klaymore {
             SubscriberRegistry.preloadKotlinStdlib();
         } catch (Throwable t) {
             LOG.warn("[Klaymore] Kotlin-side preload warning (non-fatal, deferred to first event): " + t.getMessage());
+        }
+
+        // =================================================================
+        // ⭐ 阶段 6：common/ 脚本注册阶段（物品/方块等早期注册）
+        // =================================================================
+        // 编译 common/ 目录，实例化其中所有 KlaymoreScript 子类并调用 onRegister()。
+        // 必须在 preInit 阶段完成，因为物品注册需要在纹理 stitch（init 阶段）之前。
+        // common/ 里的类会被所有 server/client 脚本共享（通过 CommonClassLoader）。
+        try {
+            int registered = ScriptLoader.runCommonRegistration();
+            if (registered > 0) {
+                LOG.info("[Klaymore] Common script registration phase complete: " + registered + " script(s) ran onRegister()");
+            }
+        } catch (Throwable t) {
+            LOG.error("[Klaymore] Common script registration failed: " + t.getMessage(), t);
         }
     }
 
