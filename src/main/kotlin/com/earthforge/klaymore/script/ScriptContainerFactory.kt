@@ -109,6 +109,13 @@ object ScriptContainerFactory {
 
     ScriptInjectionUtils.injectConventions(
         instance, effectiveTarget, parentContainer?.getTarget(), container)
+    if (instance is KlaymoreScript) {
+      try {
+        instance.onBind()
+      } catch (t: Throwable) {
+        ScriptErrorReporter.report("脚本 $scriptName onBind() 执行失败: ${t.message}")
+      }
+    }
     ScriptInjectionUtils.registerSubscribers(instance, effectiveTarget, side)
 
     // 注册到 ContainerIndex（Key -> Container），实现 O(1) 查找

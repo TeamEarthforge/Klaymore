@@ -26,4 +26,12 @@ abstract class KlaymoreScript {
 
   /** preInit 阶段回调，此时 target/container 等字段尚未注入。用于注册物品/方块等早期内容。 */
   open fun onRegister() {}
+
+  /**
+   * 所有注入字段（target/container/net 等）就绪后回调。
+   *
+   * 在此注册网络监听（net.on）、事件订阅等依赖注入字段的逻辑，不要放在 init {} 中。 因为 init {} 执行时 lateinit 字段尚未注入，访问会抛出
+   * UninitializedPropertyAccessException。
+   */
+  open fun onBind() {}
 }
