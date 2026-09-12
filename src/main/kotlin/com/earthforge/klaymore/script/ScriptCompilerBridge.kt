@@ -5,9 +5,7 @@ import java.util.ServiceLoader
 import kotlin.script.experimental.api.CompiledScript
 import kotlin.script.experimental.api.ResultWithDiagnostics
 
-/**
- * 脚本编译器桥接接口。主 mod 只依赖此接口，编译实现在 klaymore-compiler.jar 中通过 ServiceLoader 注入。
- */
+/** 脚本编译器桥接接口。主 mod 只依赖此接口，编译实现在 klaymore-compiler.jar 中通过 ServiceLoader 注入。 */
 interface ScriptCompilerBridge {
 
   /** 同步编译脚本，返回编译结果（失败返回 null）。 */

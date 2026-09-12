@@ -15,7 +15,9 @@ import kotlin.script.experimental.api.ScriptEvaluationConfiguration
 import kotlinx.coroutines.runBlocking
 import net.minecraft.launchwrapper.Launch
 
-/** 脚本编译产物的磁盘缓存。重启后从磁盘加载 .class 字节码，跳过编译。缓存目录：<mcRoot>/klaymore/cache/script-class-cache/<md5(脚本路径)>/ */
+/**
+ * 脚本编译产物的磁盘缓存。重启后从磁盘加载 .class 字节码，跳过编译。缓存目录：<mcRoot>/klaymore/cache/script-class-cache/<md5(脚本路径)>/
+ */
 object ScriptClassCache {
 
   private val gson: Gson = GsonBuilder().create()
@@ -231,8 +233,7 @@ object ScriptClassCache {
               dst[k] = v
             }
           }
-        } catch (_: Throwable) {
-        }
+        } catch (_: Throwable) {}
       }
       clazz = clazz.superclass
     }
