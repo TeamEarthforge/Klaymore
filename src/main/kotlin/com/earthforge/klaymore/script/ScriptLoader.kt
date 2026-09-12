@@ -112,6 +112,31 @@ object ScriptLoader {
 
     ensureCommonLoaded(bridge)
 
+    // 1. 先尝试磁盘批量缓存（整目录一起编译的产物，必须整体加载以保留跨文件引用）
+    val cachedBytes = ScriptClassCache.loadBatchDirectory(directory)
+    if (cachedBytes != null) {
+      val parent = commonClassLoader ?: Launch.classLoader
+      val classLoader = BatchClassLoader(cachedBytes, parent)
+      batchDirLoaders[batchKey] = classLoader
+
+      val scriptClassByFile = findScriptClassesByFile(cachedBytes, classLoader)
+      var cachedCount = 0
+      for ((fileName, kClass) in scriptClassByFile) {
+        val file = File(directory, fileName)
+        if (!file.exists()) continue
+        val fileKey = file.absolutePath
+        val compiled = CachedCompiledScript(kClass)
+        compileCache[fileKey] = compiled
+        lastModifiedCache[fileKey] = file.lastModified()
+        cachedCount++
+      }
+      println(
+          "[Klaymore] Batch loaded ${cachedCount} script(s) from disk cache (${directory.name}, " +
+              "${cachedBytes.size} classes total)")
+      return cachedCount > 0
+    }
+
+    // 2. 缓存未命中 → 实际编译
     val extraClasspath = commonClasspathDir?.let { listOf(it) } ?: emptyList()
 
     val result =
@@ -131,6 +156,9 @@ object ScriptLoader {
     val parent = commonClassLoader ?: Launch.classLoader
     val classLoader = BatchClassLoader(result.classBytes, parent)
     batchDirLoaders[batchKey] = classLoader
+
+    // 3. 落盘批量缓存（整目录产物），下次启动可直接从磁盘加载
+    ScriptClassCache.saveBatchDirectory(directory, result.classBytes)
 
     val scriptClassByFile = findScriptClassesByFile(result.classBytes, classLoader)
 
@@ -170,34 +198,42 @@ object ScriptLoader {
       return
     }
 
-    val result =
-        try {
-          bridge.compileBatch(commonDir)
-        } catch (t: Throwable) {
-          System.err.println("[Klaymore] common compileBatch threw: ${t.message}")
-          null
-        }
+    // 先尝试磁盘批量缓存
+    val classBytes =
+        ScriptClassCache.loadBatchDirectory(commonDir)
+            ?: run {
+              val result =
+                  try {
+                    bridge.compileBatch(commonDir)
+                  } catch (t: Throwable) {
+                    System.err.println("[Klaymore] common compileBatch threw: ${t.message}")
+                    null
+                  }
 
-    if (result == null || !result.success) {
-      val msg = result?.errorMessage ?: "common 编译失败"
-      System.err.println("[Klaymore] Common script compile FAILED: $msg")
-      return
-    }
+              if (result == null || !result.success) {
+                val msg = result?.errorMessage ?: "common 编译失败"
+                System.err.println("[Klaymore] Common script compile FAILED: $msg")
+                return
+              }
+              // 落盘批量缓存
+              ScriptClassCache.saveBatchDirectory(commonDir, result.classBytes)
+              result.classBytes
+            }
 
     val outDir = File(MinecraftDirectory.getCacheDirectory(), "common-classes")
     if (outDir.exists()) outDir.deleteRecursively()
     outDir.mkdirs()
-    for ((className, bytes) in result.classBytes) {
+    for ((className, bytes) in classBytes) {
       val classFile = File(outDir, className.replace('.', File.separatorChar) + ".class")
       classFile.parentFile?.mkdirs()
       classFile.writeBytes(bytes)
     }
     commonClasspathDir = outDir
 
-    commonClassLoader = BatchClassLoader(result.classBytes, Launch.classLoader)
+    commonClassLoader = BatchClassLoader(classBytes, Launch.classLoader)
 
     println(
-        "[Klaymore] Common scripts loaded: ${result.classBytes.size} classes -> shared ClassLoader ready")
+        "[Klaymore] Common scripts loaded: ${classBytes.size} classes -> shared ClassLoader ready")
   }
 
   /** 在 preInit 阶段实例化 common/ 目录脚本并调用 onRegister() */
@@ -441,10 +477,14 @@ object ScriptLoader {
       commonClassLoader = null
       commonClasspathDir = null
       commonLoaded = false
+      ScriptClassCache.invalidateBatchDirectory(commonDir)
     } else {
       // 单文件失效时，同时清除其所在目录的批量编译缓存，
       // 确保下次加载时整个目录重新编译（脚本间引用关系可能已变化）。
-      scriptFile.parentFile?.let { batchDirLoaders.remove(it.absolutePath) }
+      scriptFile.parentFile?.let {
+        batchDirLoaders.remove(it.absolutePath)
+        ScriptClassCache.invalidateBatchDirectory(it)
+      }
     }
 
     // 同时清掉磁盘缓存，确保下次加载重新编译（用于 /klaymore reload 等场景）

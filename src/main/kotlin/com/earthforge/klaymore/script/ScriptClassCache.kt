@@ -175,6 +175,107 @@ object ScriptClassCache {
     }
   }
 
+  // ====================================================================
+  //  目录级批量缓存
+  // ====================================================================
+  // 批量编译（整个目录一起编译）的产物需要整体落盘，因为同目录脚本之间
+  // 存在互相引用，必须共享同一个 ClassLoader 才能正确解析。
+  // 缓存目录：<mcRoot>/klaymore/cache/script-class-cache/batch-<md5(目录路径)>/
+
+  private data class BatchCacheMeta(val dirPath: String, val sourceFiles: Map<String, Long>)
+
+  private fun batchCacheDir(directory: File): File? {
+    val root = getCacheRoot() ?: return null
+    return File(root, "batch-" + cacheKey(directory))
+  }
+
+  /** 从磁盘批量缓存加载整个目录的编译产物。若任源文件变动则返回 null。 */
+  fun loadBatchDirectory(directory: File): Map<String, ByteArray>? {
+    val dir = batchCacheDir(directory) ?: return null
+    if (!dir.isDirectory) return null
+
+    val metaFile = File(dir, "batch-meta.json")
+    if (!metaFile.isFile) return null
+
+    val meta =
+        try {
+          metaFile.bufferedReader(Charsets.UTF_8).use {
+            gson.fromJson(it, BatchCacheMeta::class.java)
+          }
+        } catch (t: Throwable) {
+          System.err.println(
+              "[Klaymore ScriptCache] failed to parse batch meta for ${directory.name}: ${t.message}")
+          return null
+        } ?: return null
+
+    val ktFiles =
+        directory.listFiles { f -> f.isFile && f.extension.equals("kt", ignoreCase = true) }
+            ?: return null
+    val currentFiles = ktFiles.associate { it.name to it.lastModified() }
+    if (currentFiles != meta.sourceFiles) {
+      println(
+          "[Klaymore ScriptCache] BATCH MISS ${directory.name} (source files changed, recompiling)")
+      return null
+    }
+
+    val classFiles =
+        dir.listFiles { f -> f.isFile && f.extension.equals("class", ignoreCase = true) }
+            ?: return null
+    val classes = LinkedHashMap<String, ByteArray>()
+    for (cf in classFiles) {
+      val className = cf.nameWithoutExtension
+      classes[className] = cf.readBytes()
+    }
+    if (classes.isEmpty()) return null
+
+    println(
+        "[Klaymore ScriptCache] BATCH HIT ${directory.name} (${classes.size} classes from disk)")
+    return classes
+  }
+
+  /** 将整个目录的批量编译产物写入磁盘缓存 */
+  fun saveBatchDirectory(directory: File, classBytes: Map<String, ByteArray>): Boolean {
+    return try {
+      val dir = batchCacheDir(directory) ?: return false
+      if (dir.exists()) dir.deleteRecursively()
+      if (!dir.mkdirs()) {
+        System.err.println(
+            "[Klaymore ScriptCache] cannot mkdir batch cache dir: ${dir.absolutePath}")
+        return false
+      }
+
+      for ((name, bytes) in classBytes) {
+        File(dir, "$name.class").writeBytes(bytes)
+      }
+
+      val ktFiles =
+          directory.listFiles { f -> f.isFile && f.extension.equals("kt", ignoreCase = true) }
+              ?: emptyArray()
+      val sourceFiles = ktFiles.associate { it.name to it.lastModified() }
+      val meta = BatchCacheMeta(dirPath = directory.absolutePath, sourceFiles = sourceFiles)
+      File(dir, "batch-meta.json").bufferedWriter(Charsets.UTF_8).use { gson.toJson(meta, it) }
+
+      println(
+          "[Klaymore ScriptCache] BATCH saved ${classBytes.size} classes for ${directory.name} -> ${dir.absolutePath}")
+      true
+    } catch (t: Throwable) {
+      System.err.println(
+          "[Klaymore ScriptCache] failed to save batch cache for ${directory.name}: ${t.message}")
+      false
+    }
+  }
+
+  /** 删除某个目录的批量缓存条目 */
+  fun invalidateBatchDirectory(directory: File) {
+    try {
+      val dir = batchCacheDir(directory) ?: return
+      if (dir.exists()) dir.deleteRecursively()
+    } catch (t: Throwable) {
+      System.err.println(
+          "[Klaymore ScriptCache] failed to invalidate batch cache for ${directory.name}: ${t.message}")
+    }
+  }
+
   /** 从 CompiledScript 及其 ClassLoader 中提取所有脚本生成类的字节码 */
   private fun extractScriptClassBytes(
       compiled: CompiledScript,

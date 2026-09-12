@@ -81,13 +81,16 @@ public class KlaymoreCommand extends CommandBase {
         if (dir == null || !dir.isDirectory()) return;
         if (commonDir != null) {
             try {
-                if (dir.getCanonicalPath().startsWith(commonDir.getCanonicalPath())) return;
+                if (dir.getCanonicalPath()
+                    .startsWith(commonDir.getCanonicalPath())) return;
             } catch (Throwable ignored) {}
         }
         File[] files = dir.listFiles();
         if (files == null) return;
         for (File f : files) {
-            if (f.isFile() && f.getName().toLowerCase().endsWith(".kt")) {
+            if (f.isFile() && f.getName()
+                .toLowerCase()
+                .endsWith(".kt")) {
                 names.add(f.getName());
             } else if (recursive && f.isDirectory()) {
                 collectKtNames(f, names, commonDir, true);
@@ -233,7 +236,8 @@ public class KlaymoreCommand extends CommandBase {
 
     private void reloadSpecificScript(final ICommandSender sender, final String rawScriptName) {
         // 支持省略 .kt 扩展名
-        final String scriptName = rawScriptName.toLowerCase().endsWith(".kt") ? rawScriptName : rawScriptName + ".kt";
+        final String scriptName = rawScriptName.toLowerCase()
+            .endsWith(".kt") ? rawScriptName : rawScriptName + ".kt";
 
         final File scriptFile = PersistenceStorage.resolveScriptFile(scriptName);
         if (scriptFile == null || !scriptFile.exists() || !scriptFile.isFile()) {
@@ -248,15 +252,14 @@ public class KlaymoreCommand extends CommandBase {
         }
 
         // ⭐ common/ 目录下的脚本是注册脚本（物品/方块等），只在 preInit 阶段执行一次，
-        //    运行时重新编译会破坏已注册对象的类引用，因此禁止热重载。
+        // 运行时重新编译会破坏已注册对象的类引用，因此禁止热重载。
         File commonDir = com.earthforge.klaymore.MinecraftDirectory.getCommonScriptDirectory();
         if (commonDir != null) {
             try {
-                if (scriptFile.getCanonicalPath().startsWith(commonDir.getCanonicalPath())) {
-                    sender.addChatMessage(
-                        new ChatComponentText("§c禁止重载 common/ 目录下的注册脚本: " + scriptName));
-                    sender.addChatMessage(
-                        new ChatComponentText("§ecommon/ 脚本仅在游戏启动时执行注册，请重启游戏生效。"));
+                if (scriptFile.getCanonicalPath()
+                    .startsWith(commonDir.getCanonicalPath())) {
+                    sender.addChatMessage(new ChatComponentText("§c禁止重载 common/ 目录下的注册脚本: " + scriptName));
+                    sender.addChatMessage(new ChatComponentText("§ecommon/ 脚本仅在游戏启动时执行注册，请重启游戏生效。"));
                     return;
                 }
             } catch (Throwable ignored) {}
@@ -323,13 +326,16 @@ public class KlaymoreCommand extends CommandBase {
         if (dir == null || !dir.isDirectory()) return;
         if (commonDir != null) {
             try {
-                if (dir.getCanonicalPath().startsWith(commonDir.getCanonicalPath())) return;
+                if (dir.getCanonicalPath()
+                    .startsWith(commonDir.getCanonicalPath())) return;
             } catch (Throwable ignored) {}
         }
         File[] files = dir.listFiles();
         if (files == null) return;
         for (File f : files) {
-            if (f.isFile() && f.getName().toLowerCase().endsWith(".kt")) {
+            if (f.isFile() && f.getName()
+                .toLowerCase()
+                .endsWith(".kt")) {
                 list.add(f);
             } else if (recursive && f.isDirectory()) {
                 collectKtFiles(f, list, commonDir, true);
@@ -346,13 +352,15 @@ public class KlaymoreCommand extends CommandBase {
         collectKtFiles(serverDir, scriptFiles, commonDir, true);
 
         if (scriptFiles.isEmpty()) {
-            sender
-                .addChatMessage(new ChatComponentText("No reloadable .kt script files found in: " + scriptDir.getAbsolutePath()
-                    + " (common/ is excluded from reload)"));
+            sender.addChatMessage(
+                new ChatComponentText(
+                    "No reloadable .kt script files found in: " + scriptDir.getAbsolutePath()
+                        + " (common/ is excluded from reload)"));
             return;
         }
 
-        sender.addChatMessage(new ChatComponentText("§e开始异步热重载所有服务端脚本 (" + scriptFiles.size() + " 个文件, common/ 已跳过) ..."));
+        sender.addChatMessage(
+            new ChatComponentText("§e开始异步热重载所有服务端脚本 (" + scriptFiles.size() + " 个文件, common/ 已跳过) ..."));
 
         final AtomicInteger totalSuccess = new AtomicInteger(0);
         final AtomicInteger totalFailed = new AtomicInteger(0);
