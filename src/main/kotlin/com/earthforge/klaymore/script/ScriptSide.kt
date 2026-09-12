@@ -1,10 +1,6 @@
 package com.earthforge.klaymore.script
 
-/**
- * 脚本所属逻辑端。
- *
- * 服务端 JVM 只挂载 SERVER 脚本，客户端 JVM 只挂载 CLIENT 脚本。 集成服（单人游戏）中两类脚本共存于同一 JVM，靠 World.isRemote 区分事件派发。
- */
+/** 脚本所属逻辑端：服务端只挂载 SERVER 脚本，客户端只挂载 CLIENT 脚本 */
 enum class ScriptSide {
   SERVER,
   CLIENT;
@@ -25,7 +21,7 @@ enum class ScriptSide {
       }
     }
 
-    /** 从脚本文件路径推断 side：client/ 目录 → CLIENT，其余 → SERVER */
+    /** 从脚本文件路径推断 side */
     @JvmStatic
     fun fromPath(scriptFile: java.io.File): ScriptSide {
       val parent = scriptFile.parentFile?.name?.lowercase() ?: return SERVER

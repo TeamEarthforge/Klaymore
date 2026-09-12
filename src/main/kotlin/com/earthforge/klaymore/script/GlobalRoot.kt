@@ -2,14 +2,7 @@ package com.earthforge.klaymore.script
 
 import java.io.File
 
-/**
- * 全局脚本根管理器。
- *
- * 服务端根：<scriptDir>/server/Root.kt （兼容旧位置 <scriptDir>/Root.kt） 客户端根：<scriptDir>/client/Root.kt
- *
- * 两类根独立挂载、独立 target（Dummy("root") / Dummy("client_root")）， 互不干扰。客户端根在 ClientProxy.init
- * 阶段尽早挂载（可处理主菜单等不在服务器时的逻辑）。
- */
+/** 全局脚本根管理器。服务端根和客户端根独立挂载、独立 target。 */
 object GlobalRoot {
 
   // ---- 服务端根 ----
@@ -27,10 +20,6 @@ object GlobalRoot {
 
   @Volatile private var _clientRootContainer: ScriptContainer? = null
 
-  // ================================================================================
-  //  服务端根
-  // ================================================================================
-
   @JvmStatic
   val container: ScriptContainer?
     get() = _rootContainer
@@ -43,7 +32,7 @@ object GlobalRoot {
 
   @JvmStatic fun isLoaded(): Boolean = _rootContainer != null
 
-  /** 解析服务端 Root.kt 文件路径。 优先 <scriptDir>/server/Root.kt，找不到回退 <scriptDir>/Root.kt（兼容旧版）。 */
+  /** 解析服务端 Root.kt 文件路径，优先 server/ 子目录 */
   @JvmStatic
   fun resolveServerRootFile(): File? {
     val scriptDir = PersistenceStorage.getScriptDirectory() ?: return null
@@ -52,7 +41,7 @@ object GlobalRoot {
     if (inServer.isFile) return inServer
     val legacy = File(scriptDir, ROOT_SCRIPT_NAME)
     if (legacy.isFile) return legacy
-    return inServer // 返回期望路径，让上层打印 missing 提示
+    return inServer
   }
 
   @JvmStatic
@@ -124,10 +113,6 @@ object GlobalRoot {
     }
   }
 
-  // ================================================================================
-  //  客户端根
-  // ================================================================================
-
   @JvmStatic
   val clientContainer: ScriptContainer?
     get() = _clientRootContainer
@@ -147,7 +132,7 @@ object GlobalRoot {
     return File(clientDir, ROOT_SCRIPT_NAME)
   }
 
-  /** 客户端尽早挂载（ClientProxy.init 阶段）。 用同步挂载：此时还在 Mod 初始化，脚本需要尽早就绪以处理主菜单等逻辑。 */
+  /** ClientProxy.init 阶段尽早挂载客户端根 */
   @JvmStatic
   fun mountClientIfPresent(): Boolean {
     val rootFile = resolveClientRootFile()

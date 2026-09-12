@@ -24,12 +24,7 @@ object ScriptContainerFactory {
     return finishMount(compiled, scriptName, target, parentContainer, initialPersistentData, side)
   }
 
-  /**
-   * 异步版本：编译走后台线程，编译完成后回主线程完成实例化+注入+注册，最后通过 callback 返回 callback 永远在主线程调用，可以安全操作 Minecraft 世界 /
-   * 给玩家发消息等
-   *
-   * @param callback 接收挂载结果：成功 → ScriptContainer；失败 → null（编译错误或实例化错误）
-   */
+  /** 异步版本：编译走后台线程，完成后在主线程回调 */
   @JvmStatic
   fun createAndMountAsync(
       scriptName: String,
@@ -80,7 +75,7 @@ object ScriptContainerFactory {
     }
   }
 
-  /** 编译完成后的剩余挂载步骤（导入持久化数据 → 实例化 → 注入 → 订阅 → 注册管理器） */
+  /** 编译完成后的挂载步骤：实例化 → 注入 → 订阅 → 注册 */
   private fun finishMount(
       compiled: CompiledScript,
       scriptName: String,
@@ -154,22 +149,7 @@ object ScriptContainerFactory {
     FactBase.clear()
   }
 
-  /**
-   * 蓝图与实例分离：基于已编译脚本（蓝图）生成新的运行时实例。
-   *
-   * 设计目标（见 Klaymore 方案 §3.3 / §5.3）：
-   * - 同一份脚本源码编译后只保留一份 CompiledScript（蓝图）。
-   * - 运行时根据需要 spawn 多个实例，每个实例可绑定不同 target / path。
-   * - 例如 100 个士兵共用 soldier.kts 一份字节码，每个实例有自己的 path 与 target。
-   *
-   * @param parentContainer 父容器（用于建立父子关系、推导路径前缀）
-   * @param scriptName 脚本名称（用于在 ScriptLoader 缓存中查找已编译蓝图）
-   * @param target 新实例的绑定目标
-   * @param path 新实例的逻辑路径（如 "/game/red/soldier_3"）
-   * @param extraPersistentData 额外的持久化数据（会与 klaymore.path 合并）
-   * @param side 端侧
-   * @return 新容器；若蓝图未编译或实例化失败则返回 null
-   */
+  /** 基于已编译蓝图生成新的运行时实例，共用同一份字节码 */
   @JvmStatic
   fun spawnChild(
       parentContainer: ScriptContainer,
@@ -179,21 +159,18 @@ object ScriptContainerFactory {
       extraPersistentData: Map<String, *>? = null,
       side: ScriptSide = ScriptSide.SERVER
   ): ScriptContainer? {
-    // 1. 从蓝图缓存中获取已编译脚本（不重新编译）
     val compiled = ScriptLoader.getCachedCompiledScript(scriptName)
     if (compiled == null) {
       ScriptErrorReporter.report("spawnChild 失败：脚本 '$scriptName' 未预编译（蓝图不存在）")
       return null
     }
 
-    // 2. 组装 initialPersistentData，包含路径
     val persistentData = mutableMapOf<String, Any?>()
     if (extraPersistentData != null) {
       persistentData.putAll(extraPersistentData)
     }
     persistentData[PATH_KEY] = path
 
-    // 3. 复用 finishMount 完成实例化、注入、注册
     return finishMount(compiled, scriptName, target, parentContainer, persistentData, side)
   }
 
@@ -238,13 +215,7 @@ object ScriptContainerFactory {
     }
   }
 
-  /**
-   * 实例化脚本类。
-   *
-   * 支持两种脚本声明方式：
-   * - `class Foo : KlaymoreScript()` → 调用无参构造创建新实例（每个 spawnChild 产生独立实例）
-   * - `object Foo : KlaymoreScript()` → 返回单例 INSTANCE
-   */
+  /** 实例化脚本类，支持 class（无参构造）和 object（INSTANCE 字段）两种声明方式 */
   private fun instantiateKClass(clazz: Class<*>): Any? {
     // 优先尝试 object 单例（INSTANCE 字段）
     try {
@@ -268,12 +239,7 @@ object ScriptContainerFactory {
   private fun looksLikeScriptImpl(obj: Any): Boolean =
       KlaymoreScript::class.java.isAssignableFrom(obj.javaClass)
 
-  /**
-   * 从脚本编译产物的外壳类中，找到继承 [KlaymoreScript] 的嵌套类并实例化。
-   *
-   * Kotlin 脚本编译后会生成一个外壳类，用户写的 `class Soldier : KlaymoreScript()` 会成为该外壳类的嵌套类。这里扫描所有嵌套类，找到第一个继承
-   * KlaymoreScript 的， 通过无参构造 newInstance() 返回全新实例（每个 spawnChild 调用产生独立实例）。
-   */
+  /** 从脚本编译产物的外壳类中找到继承 [KlaymoreScript] 的嵌套类并实例化 */
   private fun unwrapScriptObject(rawInstance: Any, scriptName: String): Any? {
     if (looksLikeScriptImpl(rawInstance)) return rawInstance
 

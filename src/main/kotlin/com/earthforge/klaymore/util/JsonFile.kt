@@ -5,43 +5,17 @@ import com.google.gson.Gson
 import com.google.gson.GsonBuilder
 import java.io.File
 
-/**
- * JSON 文件读写工具。
- *
- * 封装 Gson + 文件 IO 的样板代码，一行完成「读 JSON → 对象」或「对象 → 写 JSON」。
- *
- * 所有路径相对于 Klaymore 数据目录（`<mcRoot>/klaymore/data/`）解析， 脚本无需关心绝对路径或目录创建。
- *
- * 用法：
- *
- * ```kotlin
- * data class Config(val name: String, val level: Int)
- *
- * // 读取（文件不存在返回 null）
- * val config: Config? = JsonFile.load("config/my_config.json")
- *
- * // 读取并带默认值
- * val config = JsonFile.loadOr("config/my_config.json", Config("default", 1))
- *
- * // 保存
- * JsonFile.save("config/my_config.json", config)
- * ```
- */
+/** JSON 文件读写工具，路径相对于 `<mcRoot>/klaymore/data/` */
 object JsonFile {
 
   @PublishedApi internal val gson: Gson = GsonBuilder().setPrettyPrinting().create()
 
-  /** 将相对路径解析为 data 目录下的绝对 File。 */
+  /** 将相对路径解析为 data 目录下的绝对路径 */
   @PublishedApi
   internal fun resolve(relativePath: String): File =
       File(MinecraftDirectory.getDataDirectory(), relativePath)
 
-  /**
-   * 从 JSON 文件读取并反序列化为 [T]。
-   *
-   * @param relativePath 相对于 data 目录的路径，如 "config/foo.json"
-   * @return 反序列化后的对象；文件不存在或解析失败返回 null
-   */
+  /** 从 JSON 文件读取并反序列化为 [T] */
   inline fun <reified T> load(relativePath: String): T? {
     val file = resolve(relativePath)
     if (!file.exists() || !file.isFile) return null
@@ -57,14 +31,7 @@ object JsonFile {
   inline fun <reified T> loadOr(relativePath: String, default: T): T =
       load<T>(relativePath) ?: default
 
-  /**
-   * 将对象序列化为 JSON 并写入文件。
-   *
-   * 会自动创建父目录。写入采用「先写临时文件再原子替换」策略，避免写入中途崩溃导致文件损坏。
-   *
-   * @param relativePath 相对于 data 目录的路径
-   * @return 写入成功返回 true
-   */
+  /** 将对象序列化为 JSON 写入文件，先写临时文件再原子替换 */
   fun save(relativePath: String, obj: Any?): Boolean {
     val file = resolve(relativePath)
     return try {

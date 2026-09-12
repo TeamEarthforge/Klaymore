@@ -10,23 +10,7 @@ import net.minecraft.entity.Entity
 import net.minecraft.entity.player.EntityPlayerMP
 import net.minecraft.network.NetHandlerPlayServer
 
-/**
- * 脚本侧 C/S 通信 API。
- *
- * 通过 KlaymoreScript.net 字段注入到脚本实例。 所有方法线程安全：发送可在任意线程调用，接收 handler 统一在主线程执行。
- *
- * payload 统一为 Map<String, Any?>（嵌套 List/Map/基本类型/String）， 与 persistentData 的安全类型体系一致。
- *
- * 用法示例（客户端脚本）：
- *
- * ```
- * // net 字段已由引擎注入
- * net.on("announcement") { data, _ ->
- *     // data 是 Map<String, Any?>
- * }
- * net.sendToServer("quest.update", mapOf("id" to 5))
- * ```
- */
+/** 脚本侧 C/S 通信 API，通过 KlaymoreScript.net 字段注入 */
 interface ScriptNet {
   /** 客户端 → 服务端。服务端脚本里调用会报错。 */
   fun sendToServer(channel: String, data: Any?)
@@ -40,28 +24,15 @@ interface ScriptNet {
   /** 服务端 → center 周围 range 格内的所有玩家。 */
   fun sendToAllAround(center: Entity, range: Double, channel: String, data: Any?)
 
-  /**
-   * 注册接收 handler。
-   *
-   * @param handler (data, sender) → Unit；sender 仅 C→S 时有值（发送消息的玩家），S→C 时为 null
-   */
   fun on(channel: String, handler: (data: Map<String, Any?>, sender: EntityPlayerMP?) -> Unit)
 }
 
-/** 内部：某个容器注册的 handler 条目 */
 private data class NetHandlerEntry(
     val container: ScriptContainer,
     val handler: (Map<String, Any?>, EntityPlayerMP?) -> Unit
 )
 
-/**
- * 脚本通信路由中心。
- *
- * 维护 channel → handler 列表的映射，负责：
- * - 入站包的 JSON 反序列化 + 主线程派发
- * - 容器卸载时自动清理其注册的所有 handler（防内存泄漏）
- * - 出站消息的 JSON 序列化 + 网络发送
- */
+/** 脚本通信路由中心：channel → handler 映射 */
 object ScriptNetDispatcher {
 
   private val gson: Gson = GsonBuilder().create()
@@ -73,16 +44,11 @@ object ScriptNetDispatcher {
   private val networkChannel
     get() = com.earthforge.klaymore.network.KlaymoreNetwork.CHANNEL
 
-  // --------------------------------------------------------------------------------
-  //  入站：由 ScriptMessagePacket.Handler 调用（已在主线程）
-  // --------------------------------------------------------------------------------
-
   @JvmStatic
   fun dispatchIncoming(packet: ScriptMessagePacket, ctx: MessageContext) {
     val channel = packet.channel ?: return
     val data = deserializePayload(packet.payload)
 
-    // C→S：sender 是发送消息的玩家；S→C：sender 为 null
     val sender: EntityPlayerMP? =
         if (ctx.side == Side.SERVER) {
           try {
@@ -104,10 +70,6 @@ object ScriptNetDispatcher {
       }
     }
   }
-
-  // --------------------------------------------------------------------------------
-  //  出站：供 ScriptNet 实现调用
-  // --------------------------------------------------------------------------------
 
   @JvmStatic
   fun sendToServer(channel: String, data: Any?) {
@@ -152,10 +114,6 @@ object ScriptNetDispatcher {
     networkChannel.sendToAllAround(ScriptMessagePacket(channel, json, center.entityId), point)
   }
 
-  // --------------------------------------------------------------------------------
-  //  注册 / 注销
-  // --------------------------------------------------------------------------------
-
   @JvmStatic
   fun registerHandler(
       container: ScriptContainer,
@@ -166,7 +124,7 @@ object ScriptNetDispatcher {
     list.add(NetHandlerEntry(container, handler))
   }
 
-  /** 容器卸载时调用，移除该容器注册的所有 handler */
+  /** 容器卸载时移除其注册的所有 handler */
   @JvmStatic
   fun unregisterContainer(container: ScriptContainer) {
     for ((channel, list) in routes) {
@@ -176,10 +134,6 @@ object ScriptNetDispatcher {
       }
     }
   }
-
-  // --------------------------------------------------------------------------------
-  //  序列化工具
-  // --------------------------------------------------------------------------------
 
   private fun serializePayload(data: Any?): String {
     if (data == null) return "{}"

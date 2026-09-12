@@ -6,29 +6,15 @@ import com.google.gson.reflect.TypeToken
 import java.io.File
 import java.util.concurrent.ConcurrentHashMap
 
-/**
- * 事实库（FactBase）：三元组 (Subject, Predicate, Object) 存储。
- *
- * 设计目标（见 Klaymore 方案 §2.3 / §4）：
- * - 弃用广播式事件，改为基于匹配的解耦通信。
- * - System 脚本写入 (棋子UUID, "cmd.move", 坐标)，棋子脚本订阅特定 Predicate 并检查 Subject 是否匹配自身。
- * - 存储结构：Map<Subject, Map<Predicate, Object>>，O(1) 定位。
- *
- * 线程安全：使用 ConcurrentHashMap，put/get 可在任意线程调用。 持久化：支持 JSON 序列化（可选），替代"恢复树"逻辑。
- */
+/** 事实库：三元组 (Subject, Predicate, Object) 存储，基于匹配的解耦通信 */
 object FactBase {
 
   private val gson: Gson = GsonBuilder().create()
   private val mapType = object : TypeToken<Map<String, Map<String, Any?>>>() {}.type
 
-  /** subject -> (predicate -> object) */
   private val store = ConcurrentHashMap<String, ConcurrentHashMap<String, Any?>>()
 
-  // --------------------------------------------------------------------------------
-  //  写入
-  // --------------------------------------------------------------------------------
-
-  /** 写入一条事实：(subject, predicate, obj)。覆盖同一 (subject, predicate) 的旧值。 */
+  /** 写入一条事实，覆盖同一 (subject, predicate) 的旧值 */
   @JvmStatic
   fun put(subject: String, predicate: String, obj: Any?) {
     if (subject.isEmpty() || predicate.isEmpty()) return
@@ -47,10 +33,6 @@ object FactBase {
     store.remove(subject)
   }
 
-  // --------------------------------------------------------------------------------
-  //  查询
-  // --------------------------------------------------------------------------------
-
   /** 查询 (subject, predicate) 对应的 object。 */
   @JvmStatic fun get(subject: String, predicate: String): Any? = store[subject]?.get(predicate)
 
@@ -58,10 +40,7 @@ object FactBase {
   @JvmStatic
   fun getSubject(subject: String): Map<String, Any?> = store[subject]?.toMap() ?: emptyMap()
 
-  /**
-   * 查询所有包含某 predicate 的事实。 返回 List<Triple(subject, predicate, object)>。 用于棋子脚本订阅特定 Predicate 后，遍历检查
-   * Subject 是否匹配自身。
-   */
+  /** 查询所有包含某 predicate 的事实 */
   @JvmStatic
   fun queryByPredicate(predicate: String): List<Triple<String, String, Any?>> {
     val result = mutableListOf<Triple<String, String, Any?>>()
@@ -93,11 +72,7 @@ object FactBase {
   fun contains(subject: String, predicate: String): Boolean =
       store[subject]?.containsKey(predicate) ?: false
 
-  // --------------------------------------------------------------------------------
-  //  生命周期
-  // --------------------------------------------------------------------------------
-
-  /** 清空所有事实（世界卸载时调用）。 */
+  /** 清空所有事实 */
   @JvmStatic
   fun clear() {
     store.clear()
@@ -106,11 +81,7 @@ object FactBase {
   /** 事实总数（subject 数量）。 */
   @JvmStatic fun subjectCount(): Int = store.size
 
-  // --------------------------------------------------------------------------------
-  //  序列化（可选持久化）
-  // --------------------------------------------------------------------------------
-
-  /** 序列化为 JSON 字符串（用于落盘或网络传输）。 */
+  /** 序列化为 JSON 字符串 */
   @JvmStatic
   fun toJson(): String {
     val snapshot = LinkedHashMap<String, Map<String, Any?>>()

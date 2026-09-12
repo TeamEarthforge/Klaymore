@@ -7,14 +7,7 @@ import java.util.WeakHashMap
 import kotlin.reflect.KClass
 
 object SubscriberRegistry {
-  /**
-   * 事件处理器。
-   *
-   * 用 [MethodHandle] 而非 [Method] 缓存调用点：
-   * - `Method.invoke` 每次调用都要做参数装箱 + 访问检查，且 JIT 无法内联，单次约 50-100ns
-   * - `MethodHandle.invoke` 在 lookup 时一次性完成访问检查，JIT 可内联，单次约 2-5ns
-   * - 对于高频事件（tick 等），性能提升 10-50 倍
-   */
+  /** 事件处理器，使用 [MethodHandle] 而非 [Method] 提升高频事件性能 */
   data class Handler(val instance: Any, val methodHandle: MethodHandle, val side: ScriptSide) {
     companion object {
       /** 从 [Method] 创建 [MethodHandle]，自动处理可访问性。 */
@@ -32,14 +25,7 @@ object SubscriberRegistry {
   }
 
   private val registry = mutableMapOf<KClass<out Any>, WeakHashMap<Any, MutableList<Handler>>>()
-
-  /** 当前有订阅者的事件类集合（register 时加入，最后一个订阅者移除时剔除）。 */
   private val subscribedClasses = java.util.concurrent.ConcurrentHashMap.newKeySet<Class<*>>()
-
-  /**
-   * 缓存：某具体事件类 → 沿继承链是否存在订阅者。 register/unregister 时整体清空，下次 dispatch 重新计算并缓存。 高频事件（RenderTickEvent
-   * 等）每帧/每 tick 触发，缓存后 O(1) 命中，无订阅时直接短路返回，避免反射开销。
-   */
   private val hasSubscriberCache = java.util.concurrent.ConcurrentHashMap<Class<*>, Boolean>()
 
   fun register(eventType: KClass<out Any>, target: Any, handler: Handler) {
@@ -77,14 +63,14 @@ object SubscriberRegistry {
     cleanupEmptyEventTypes()
   }
 
-  /** 扫描 registry，把已经没有任何 target 的事件类从 subscribedClasses 中移除，并重算缓存。 */
+  /** 移除已无 target 的事件类并重算缓存 */
   private fun cleanupEmptyEventTypes() {
     val stillActive = registry.keys.map { it.java }.toSet()
     subscribedClasses.retainAll(stillActive)
     hasSubscriberCache.clear()
   }
 
-  /** 沿继承链判断该事件类是否有任何订阅者。 无订阅时返回 false，dispatch 可直接短路，避免反射/提取器等重操作。 */
+  /** 沿继承链判断该事件类是否有任何订阅者 */
   private fun hasAnySubscriber(eventClass: Class<*>): Boolean {
     hasSubscriberCache[eventClass]?.let {
       return it
@@ -101,7 +87,7 @@ object SubscriberRegistry {
     return false
   }
 
-  /** Kotlin 原生提取器注册（给 Kotlin 代码调用）。 注意：提取器实际写入到纯 Java 的 EventTargetRegistrar，避免 preInit 早期类加载问题。 */
+  /** Kotlin 提取器注册，实际写入到 Java 的 EventTargetRegistrar */
   @Suppress("UNCHECKED_CAST", "RemoveExplicitTypeArguments", "UNUSED_CHANGED_VALUE")
   @JvmStatic
   fun <T : Any> registerExtractor(eventClass: Class<T>, extractor: (T) -> Any?) {
@@ -122,13 +108,7 @@ object SubscriberRegistry {
     EventTargetRegistrar.registerExtractor(rawClass, rawFn)
   }
 
-  /**
-   * Java Function 友好的提取器注册入口。
-   *
-   * ⚠️ 警告：preInit 早期不要通过 SubscriberRegistry 调用此方法 （因为进入 Kotlin 方法体之前 JVM 需要先解析 Intrinsics，可能触发类加载
-   * NPE）。 请直接通过 `EventTargetExtractorRegistry.registerExtractor` 注册 —— 它是纯 Java 实现， 会写入到同一个
-   * EventTargetRegistrar 中。
-   */
+  /** Java Function 提取器注册。preInit 早期请使用纯 Java 的 EventTargetExtractorRegistry.registerExtractor */
   @Suppress("UNCHECKED_CAST")
   @JvmStatic
   fun <T : Any> registerExtractorJava(
@@ -165,10 +145,7 @@ object SubscriberRegistry {
   @JvmStatic
   fun getManagedEventClasses(): Set<Class<*>> = EventTargetRegistrar.getManagedEventClasses()
 
-  /**
-   * Kotlin 侧预热运行时。 注意：调用此方法前请确保 KotlinPreloader.preload() 已在纯 Java 层执行过， 否则第一次进入 Kotlin 方法体就可能触发
-   * NoClassDefFoundError: Intrinsics。
-   */
+  /** 预热 Kotlin 运行时，需在 KotlinPreloader.preload() 之后调用 */
   @JvmStatic
   fun preloadKotlinStdlib() {
     try {
@@ -291,8 +268,6 @@ object SubscriberRegistry {
     if (EventTargetRegistrar.isEventSkipped(eventClass)) {
       return false
     }
-    // 快速短路：如果该事件（沿继承链）没有任何订阅者，直接返回，避免反射/提取器等重操作。
-    // 对 RenderTickEvent / ClientTickEvent 等高频事件，无脚本订阅时几乎零开销。
     if (!hasAnySubscriber(eventClass)) {
       return false
     }

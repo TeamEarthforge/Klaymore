@@ -29,30 +29,22 @@ class ScriptContainer(
   private val tempDataMap = mutableMapOf<String, Any?>()
   private val persistentDataMap = mutableMapOf<String, Any?>()
 
-  /**
-   * 容器的逻辑路径（如 "/game/red/soldier_1"）。
-   *
-   * 设计目标（见 Klaymore 方案 §2.2 / §3.1）：
-   * - 路径是值对象，天然可序列化，随 persistentData 落盘。
-   * - 父子关系由路径前缀（startsWith）动态推导，而非存储在内存中。
-   * - 不写在脚本源码里，由父脚本在运行时通过 initialPersistentData["klaymore.path"] 传入。
-   */
+  /** 容器的逻辑路径（如 "/game/red/soldier_1"），存储在 persistentData 中 */
   var path: String
     get() = persistentDataMap[PATH_KEY]?.toString() ?: ""
     private set(value) {
       persistentDataMap[PATH_KEY] = value
     }
 
-  /** 从 initialPersistentData 提取路径并存储。由 finishMount 在导入数据后调用。 */
+  /** 从 persistentData 提取并归一化路径 */
   internal fun syncPathFromPersistentData() {
     val p = persistentDataMap[PATH_KEY]?.toString() ?: ""
-    // path setter 已写回 persistentDataMap，这里仅做归一化（确保非空字符串）
     if (p.isEmpty()) {
       persistentDataMap.remove(PATH_KEY)
     }
   }
 
-  /** 基于路径判断是否为另一个容器的子级。 数学性质：路径集合构成树状偏序集，父子关系由前缀推导。 */
+  /** 基于路径前缀判断是否为另一个容器的子级 */
   fun isDescendantOf(ancestorPath: String): Boolean {
     val myPath = path
     if (myPath.isEmpty() || ancestorPath.isEmpty()) return false
@@ -174,7 +166,6 @@ class ScriptContainer(
   internal fun onUnmount() {
     ScriptNetDispatcher.unregisterContainer(this)
 
-    // 从 ContainerIndex 移除（Key -> Container 映射）
     val key = PersistenceManager.generateKey(getTarget() ?: Unit)
     if (!key.isNullOrEmpty()) {
       ContainerIndex.unregister(key)
@@ -238,7 +229,7 @@ class ScriptContainer(
 }
 
 object ScriptInjectionUtils {
-  /** 通过反射向脚本实例注入字段（target / container / net 等，定义在 KlaymoreScript 基类中）。 */
+  /** 通过反射向脚本实例注入 target / container / net 等字段 */
   @JvmStatic
   fun injectFields(instance: Any, target: Any?, parentTarget: Any?, container: ScriptContainer) {
     val net = ScriptNetImpl(container)
@@ -249,11 +240,7 @@ object ScriptInjectionUtils {
     setFieldIfAssignable(instance, "net", net, ScriptNet::class.java)
   }
 
-  /**
-   * 沿继承链查找非静态同名字段并注入值。
-   *
-   * 字段定义在 [KlaymoreScript] 基类中，子类的 declaredFields 不包含父类字段， 因此需要向上遍历继承链直到找到目标字段。
-   */
+  /** 沿继承链查找非静态同名字段并注入值 */
   private fun setFieldIfAssignable(
       instance: Any,
       fieldName: String,
@@ -300,13 +287,12 @@ object ScriptInjectionUtils {
     for (method in methods) {
       val annotation = method.getAnnotation(Subscribe::class.java) ?: continue
 
-      val modifiers = method.modifiers
-      if (java.lang.reflect.Modifier.isStatic(modifiers)) {
-        ScriptErrorReporter.report("${method.name} 被 @Subscribe 标记但为静态方法，已忽略（仅支持实例方法）")
+      if (java.lang.reflect.Modifier.isStatic(method.modifiers)) {
+        ScriptErrorReporter.report("${method.name} 被 @Subscribe 标记但为静态方法，已忽略")
         continue
       }
       if (method.parameterCount != 1) {
-        ScriptErrorReporter.report("${method.name} 被 @Subscribe 标记但参数数量不为 1，已忽略（需要恰好一个事件参数）")
+        ScriptErrorReporter.report("${method.name} 被 @Subscribe 标记但参数数量不为 1，已忽略")
         continue
       }
 

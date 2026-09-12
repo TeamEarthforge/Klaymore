@@ -6,14 +6,7 @@ import kotlin.script.experimental.api.CompiledScript
 import kotlin.script.experimental.api.ResultWithDiagnostics
 
 /**
- * 脚本编译器桥接接口。
- *
- * 主 mod（klaymore.jar）只依赖这个接口，不直接引用 Kotlin 编译器。 真正的编译实现放在独立的 klaymore-compiler.jar 里，通过
- * ServiceLoader 注入。
- *
- * 这样可以把产物拆成两部分：
- * - 玩家版：klaymore.jar + klaymore-runtime.jar（不含编译器，只能加载预编译产物）
- * - 开发版：klaymore.jar + klaymore-compiler.jar + klaymore-runtime.jar + klaymore-runtime-compiler.jar
+ * 脚本编译器桥接接口。主 mod 只依赖此接口，编译实现在 klaymore-compiler.jar 中通过 ServiceLoader 注入。
  */
 interface ScriptCompilerBridge {
 
@@ -23,45 +16,22 @@ interface ScriptCompilerBridge {
   /** 异步编译脚本，编译完成后在调用线程回调。 */
   fun compileAsync(scriptFile: File, callback: (ResultWithDiagnostics<CompiledScript>?) -> Unit)
 
-  /**
-   * 批量编译一个目录下的所有 .kt 脚本。
-   *
-   * 同一目录内的脚本会作为一个编译单元一起编译，因此脚本 A 中定义的类可以被脚本 B 直接引用。
-   *
-   * @return 编译成功返回 [BatchCompileResult]（含所有生成类的字节码）；失败返回 null。
-   */
+  /** 批量编译目录下所有 .kt 脚本，同目录脚本可互相引用 */
   fun compileBatch(directory: File): BatchCompileResult?
 
-  /**
-   * 批量编译一个目录，同时把 [extraClasspath] 中的目录/ jar 加到编译 classpath。
-   *
-   * 用于编译 server/client 脚本时让 common/ 目录的已编译类可见， 这样 server/client 脚本可以直接 import common 里定义的类。
-   *
-   * 默认实现直接忽略 extraClasspath（向后兼容）。
-   */
+  /** 批量编译目录下所有 .kt 脚本，支持额外 classpath（如引用 common/ 已编译类） */
   fun compileBatch(directory: File, extraClasspath: List<File>): BatchCompileResult? =
       compileBatch(directory)
 }
 
-/**
- * 批量编译结果。
- *
- * @property classBytes 所有生成类的字节码，key 为 JVM 内部类名（点分包名，嵌套类用 `$` 分隔）。
- * @property success 编译是否成功。
- * @property errorMessage 失败时的错误信息（成功时为 null）。
- */
+/** 批量编译结果 */
 data class BatchCompileResult(
     val classBytes: Map<String, ByteArray>,
     val success: Boolean,
     val errorMessage: String?
 )
 
-/**
- * 全局编译器实例持有者。
- *
- * 启动时通过 ServiceLoader 查找 ScriptCompilerBridge 实现。 如果类路径上没有 klaymore-compiler.jar，[instance] 为 null，
- * ScriptLoader 会在缓存未命中时报错提示。
- */
+/** 全局编译器实例持有者，通过 ServiceLoader 查找实现 */
 object ScriptCompilerHolder {
 
   @Volatile

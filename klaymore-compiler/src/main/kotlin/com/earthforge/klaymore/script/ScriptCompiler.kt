@@ -17,12 +17,7 @@ import kotlinx.coroutines.runBlocking
 import org.jetbrains.kotlin.cli.common.ExitCode
 import org.jetbrains.kotlin.cli.jvm.K2JVMCompiler
 
-/**
- * Kotlin 脚本编译器实现。
- *
- * 放在独立的 klaymore-compiler.jar 里，通过 ServiceLoader 注入到主 mod。
- * 玩家版不包含此 jar，因此无法编译脚本，只能加载预编译产物。
- */
+/** Kotlin 脚本编译器实现，通过 ServiceLoader 注入到主 mod */
 class ScriptCompiler : ScriptCompilerBridge {
 
   @Volatile private var compilerInitialized: Boolean = false
@@ -127,28 +122,19 @@ class ScriptCompiler : ScriptCompilerBridge {
     }
     val savedCl = Thread.currentThread().contextClassLoader
     try {
-      // ⭐ 关键：创建编译器前必须先切到 Launch.classLoader，
-      // 否则 JvmScriptCompiler 内部类初始化（尤其是 FIR 前端的 FirFallbackBuiltinSymbolProvider）
-      // 会用错误的 ClassLoader 找 kotlin 标准库/内置资源，导致 ExceptionInInitializerError，
-      // 之后 JVM 会永久标记该类为初始化失败（"Could not initialize class" 错误）。
       val launchCl = launchClassLoader()
       Thread.currentThread().contextClassLoader = launchCl
 
-      // 预热：手动强制加载几个关键类，让它们在正确的 classloader 上下文完成 <clinit>
       try {
         Class.forName("org.jetbrains.kotlin.builtins.KotlinBuiltIns", true, launchCl)
       } catch (_: Throwable) {
-        /* ignore */
       }
 
-      // 用正确的 ClassLoader 创建编译器实例
       val newCompiler =
           try {
-            // 优先尝试带 ClassLoader 参数的构造（如果 kotlin-scripting-jvm-host 版本支持）
             val ctor = JvmScriptCompiler::class.java.getConstructor(ClassLoader::class.java)
             ctor.newInstance(launchCl)
           } catch (_: NoSuchMethodException) {
-            // fallback: 无参构造（只要 contextClassLoader 已设置正确也能用）
             JvmScriptCompiler()
           }
 
@@ -157,7 +143,6 @@ class ScriptCompiler : ScriptCompilerBridge {
       println("[Klaymore] ScriptCompiler: JvmScriptCompiler initialized OK (classloader = Launch)")
       return newCompiler
     } catch (e: ExceptionInInitializerError) {
-      // 捕获真正的根因（之前的错误日志只给出了缓存后的 NoClassDefFoundError，丢失了根异常堆栈）
       val cause = e.cause ?: e
       System.err.println(
           "[Klaymore] FATAL: JvmScriptCompiler class initialization FAILED (root cause captured)")
@@ -176,16 +161,12 @@ class ScriptCompiler : ScriptCompilerBridge {
   override fun compile(scriptFile: File): ResultWithDiagnostics<CompiledScript>? {
     val originalClassLoader = Thread.currentThread().contextClassLoader
     return try {
-      // 关键：切换上下文到 Launch.classLoader（编译器初始化、类/资源加载全依赖这个）
       val launchCl = launchClassLoader()
       Thread.currentThread().contextClassLoader = launchCl
 
-      // 在正确的 classloader 上下文下惰性创建编译器（首次调用时创建）
       val compilerInstance = getOrCreateCompiler()
-
       val classpathFiles = buildCompilationClasspath()
 
-      // 构建编译配置：只用手动构建的 classpath（全 SRG 命名 + Kotlin 依赖）
       val config = ScriptCompilationConfiguration {
         jvm {
           jvmTarget("1.8")
@@ -196,7 +177,6 @@ class ScriptCompiler : ScriptCompilerBridge {
       println("[Klaymore] Compiling script: ${scriptFile.absolutePath}")
       runBlocking { compilerInstance(FileScriptSource(scriptFile), config) }
     } catch (e: Throwable) {
-      // 补充上下文到异常信息，便于排查
       System.err.println(
           "[Klaymore] ScriptCompiler.compile EXCEPTION for ${scriptFile.name}: ${e.message}")
       e.printStackTrace(System.err)
@@ -206,20 +186,11 @@ class ScriptCompiler : ScriptCompilerBridge {
     }
   }
 
-  /**
-   * 批量编译一个目录下的所有 .kt 脚本。
-   *
-   * 使用 K2JVMCompiler（标准 Kotlin 编译器）将目录内所有 .kt 文件作为一个编译单元一起编译，
-   * 这样脚本 A 中定义的类可以被脚本 B 直接引用（同包内互相引用）。
-   *
-   * 编译产物输出到临时目录，读取所有 .class 文件字节码后返回。
-   */
+  /** 批量编译目录下所有 .kt 脚本，同目录脚本可互相引用 */
   override fun compileBatch(directory: File): BatchCompileResult? =
       compileBatch(directory, emptyList())
 
-  /**
-   * 批量编译，支持额外 classpath（用于让 server/client 脚本引用 common/ 已编译类）。
-   */
+  /** 批量编译，支持额外 classpath */
   override fun compileBatch(directory: File, extraClasspath: List<File>): BatchCompileResult? {
     val originalClassLoader = Thread.currentThread().contextClassLoader
     return try {
@@ -264,7 +235,6 @@ class ScriptCompiler : ScriptCompilerBridge {
         return BatchCompileResult(emptyMap(), false, msg)
       }
 
-      // 读取所有生成的 .class 文件
       val classBytes = LinkedHashMap<String, ByteArray>()
       outputDir.walkTopDown().forEach { f ->
         if (f.isFile && f.extension.equals("class", ignoreCase = true)) {
@@ -289,10 +259,7 @@ class ScriptCompiler : ScriptCompilerBridge {
     }
   }
 
-  /**
-   * 构建编译用 classpath：合并 Launch.classLoader 与编译器类加载器的所有 jar，
-   * 将 MC/Forge 的 notch 命名 jar 替换为 SRG dummy jar，避免命名冲突。
-   */
+  /** 构建编译用 classpath，将 notch 命名 jar 替换为 SRG dummy jar。 */
   private fun buildCompilationClasspath(): List<File> {
     val launchCl = launchClassLoader()
     val launchClasspath = extractClasspathFromLoader(launchCl)
@@ -329,7 +296,7 @@ class ScriptCompiler : ScriptCompilerBridge {
     }
   }
 
-  /** 从 ClassLoader 中提取所有类路径（URL -> File） 处理 URLClassLoader 和 LaunchClassLoader 的 sources 字段 */
+  /** 从 ClassLoader 中提取所有类路径 */
   private fun extractClasspathFromLoader(classLoader: ClassLoader): List<File> {
     val files = LinkedHashSet<File>()
 
@@ -359,18 +326,15 @@ class ScriptCompiler : ScriptCompilerBridge {
       }
     }
 
-    // 1. 如果是 URLClassLoader
     if (classLoader is URLClassLoader) {
       classLoader.urLs.forEach(::addUrl)
     }
 
-    // 2. 尝试反射 getURLs()（适用于 LaunchClassLoader）
     try {
       val method = classLoader.javaClass.getMethod("getURLs")
       val urls = method.invoke(classLoader) as? Array<URL>
       urls?.forEach(::addUrl)
     } catch (_: Exception) {
-      // 3. 尝试反射 sources 字段（Forge 特有）
       try {
         val field = classLoader.javaClass.getDeclaredField("sources")
         field.isAccessible = true

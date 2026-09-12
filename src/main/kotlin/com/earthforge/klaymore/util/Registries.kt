@@ -5,17 +5,8 @@ import cpw.mods.fml.common.registry.GameRegistry
 import net.minecraft.block.Block
 import net.minecraft.item.Item
 
-/**
- * 物品 / 方块注册 API。
- *
- * 供 common/ 脚本在 [com.earthforge.klaymore.script.KlaymoreScript.onRegister] 阶段调用， 统一走 GameRegistry
- * 注册，脚本无需关心 modid 和注册时机。
- *
- * 所有注册的物品/方块的 modid 均为 "klaymore"。
- */
-object
-
-Registries {
+/** 物品/方块注册 API，供 common/ 脚本在 onRegister 阶段调用 */
+object Registries {
 
   /** 注册物品。name 为注册名（不含 modid 前缀），返回注册后的物品实例。 */
   @JvmStatic
