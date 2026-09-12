@@ -246,21 +246,21 @@ object ScriptContainerFactory {
    * - `object Foo : KlaymoreScript()` → 返回单例 INSTANCE
    */
   private fun instantiateKClass(clazz: Class<*>): Any? {
-    // 先尝试无参构造（class 声明）
+    // 优先尝试 object 单例（INSTANCE 字段）
+    try {
+      val instanceField = clazz.getField("INSTANCE")
+      return instanceField.get(null)
+    } catch (_: Throwable) {
+      // 非 object -> 尝试无参构造（class 声明）
+    }
     try {
       val ctor = clazz.getDeclaredConstructor()
       ctor.isAccessible = true
       return ctor.newInstance()
-    } catch (_: Throwable) {
-      // 无参构造不可用 → 尝试 object 单例（INSTANCE 字段）
-    }
-    try {
-      val instanceField = clazz.getField("INSTANCE")
-      return instanceField.get(null)
     } catch (e: Throwable) {
       ScriptErrorReporter.report(
-          "无法实例化脚本类 ${clazz.simpleName}：既无无参构造也非 object 单例。" +
-              "请使用 'class Xxx : KlaymoreScript()' 或 'object Xxx : KlaymoreScript()'。")
+          "无法实例化脚本类 ${clazz.simpleName}：既非 object 单例也无无参构造。" +
+              "请使用 class Xxx : KlaymoreScript() 或 object Xxx : KlaymoreScript()。")
       return null
     }
   }
@@ -282,11 +282,17 @@ object ScriptContainerFactory {
       for (declaredClass in rawClass.declaredClasses) {
         if (!KlaymoreScript::class.java.isAssignableFrom(declaredClass)) continue
         try {
+          val instanceField = declaredClass.getField("INSTANCE")
+          return instanceField.get(null)
+        } catch (_: Throwable) {
+          // 非 object -> 尝试无参构造
+        }
+        try {
           val ctor = declaredClass.getDeclaredConstructor()
           ctor.isAccessible = true
           return ctor.newInstance()
         } catch (e: Throwable) {
-          ScriptErrorReporter.report("实例化脚本类 ${declaredClass.simpleName} 失败（需无参构造）: ${e.message}")
+          ScriptErrorReporter.report("实例化脚本类 ${declaredClass.simpleName} 失败: ${e.message}")
         }
       }
     } catch (_: Throwable) {
