@@ -139,15 +139,17 @@ object ScriptContainerFactory {
   fun unmountAll() {
     val all = ScriptBindingManager.getContainers().toList()
     for (container in all) {
+      // 客户端根跨世界常驻，不随世界退出卸载（否则客户端 @Subscribe 处理器丢失）
+      if (container.getTarget() === GlobalRoot.clientTarget) continue
       try {
         container.parent?.removeChild(container)
         container.children.toList().forEach { unmount(it) }
         container.onUnmount()
+        ScriptBindingManager.unregister(container)
       } catch (t: Throwable) {
         // 忽略单个容器的清理错误，继续清理其他
       }
     }
-    ScriptBindingManager.clearAll()
     ContainerIndex.clear()
     FactBase.clear()
   }
@@ -269,9 +271,8 @@ object ScriptContainerFactory {
   /**
    * 从脚本编译产物的外壳类中，找到继承 [KlaymoreScript] 的嵌套类并实例化。
    *
-   * Kotlin 脚本编译后会生成一个外壳类，用户写的 `class Soldier : KlaymoreScript()`
-   * 会成为该外壳类的嵌套类。这里扫描所有嵌套类，找到第一个继承 KlaymoreScript 的，
-   * 通过无参构造 newInstance() 返回全新实例（每个 spawnChild 调用产生独立实例）。
+   * Kotlin 脚本编译后会生成一个外壳类，用户写的 `class Soldier : KlaymoreScript()` 会成为该外壳类的嵌套类。这里扫描所有嵌套类，找到第一个继承
+   * KlaymoreScript 的， 通过无参构造 newInstance() 返回全新实例（每个 spawnChild 调用产生独立实例）。
    */
   private fun unwrapScriptObject(rawInstance: Any, scriptName: String): Any? {
     if (looksLikeScriptImpl(rawInstance)) return rawInstance
@@ -285,8 +286,7 @@ object ScriptContainerFactory {
           ctor.isAccessible = true
           return ctor.newInstance()
         } catch (e: Throwable) {
-          ScriptErrorReporter.report(
-              "实例化脚本类 ${declaredClass.simpleName} 失败（需无参构造）: ${e.message}")
+          ScriptErrorReporter.report("实例化脚本类 ${declaredClass.simpleName} 失败（需无参构造）: ${e.message}")
         }
       }
     } catch (_: Throwable) {
@@ -294,8 +294,7 @@ object ScriptContainerFactory {
     }
 
     ScriptErrorReporter.report(
-        "脚本 $scriptName 中未找到继承 KlaymoreScript 的类。" +
-            "脚本必须包含形如 'class Xxx : KlaymoreScript()' 的声明。")
+        "脚本 $scriptName 中未找到继承 KlaymoreScript 的类。" + "脚本必须包含形如 'class Xxx : KlaymoreScript()' 的声明。")
     return null
   }
 

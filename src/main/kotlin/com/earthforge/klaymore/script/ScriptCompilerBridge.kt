@@ -35,8 +35,7 @@ interface ScriptCompilerBridge {
   /**
    * 批量编译一个目录，同时把 [extraClasspath] 中的目录/ jar 加到编译 classpath。
    *
-   * 用于编译 server/client 脚本时让 common/ 目录的已编译类可见，
-   * 这样 server/client 脚本可以直接 import common 里定义的类。
+   * 用于编译 server/client 脚本时让 common/ 目录的已编译类可见， 这样 server/client 脚本可以直接 import common 里定义的类。
    *
    * 默认实现直接忽略 extraClasspath（向后兼容）。
    */

@@ -86,7 +86,9 @@ public class KlaymoreCommand extends CommandBase {
             return;
         }
 
-        File[] clientScripts = clientDir.listFiles((dir, name) -> name.toLowerCase().endsWith(".kt"));
+        File[] clientScripts = clientDir.listFiles(
+            (dir, name) -> name.toLowerCase()
+                .endsWith(".kt"));
         if (clientScripts == null || clientScripts.length == 0) {
             sender.addChatMessage(new ChatComponentText("§e客户端脚本目录下没有 .kt 文件: " + clientDir.getAbsolutePath()));
             return;
@@ -107,9 +109,9 @@ public class KlaymoreCommand extends CommandBase {
         final int total = clientScripts.length;
 
         for (final File f : clientScripts) {
-            ScriptLoader.loadScriptAsync(
-                f,
-                new java.util.function.Consumer<kotlin.script.experimental.api.CompiledScript>() {
+            ScriptLoader
+                .loadScriptAsync(f, new java.util.function.Consumer<kotlin.script.experimental.api.CompiledScript>() {
+
                     @Override
                     public void accept(kotlin.script.experimental.api.CompiledScript compiled) {
                         if (compiled != null) {
@@ -117,7 +119,8 @@ public class KlaymoreCommand extends CommandBase {
                         } else {
                             failed.incrementAndGet();
                             String err = ScriptErrorReporter.getLastError();
-                            sender.addChatMessage(new ChatComponentText("§c编译失败 " + f.getName() + (err != null ? ": " + err : "")));
+                            sender.addChatMessage(
+                                new ChatComponentText("§c编译失败 " + f.getName() + (err != null ? ": " + err : "")));
                         }
                         int n = done.incrementAndGet();
                         if (n == total) {
@@ -136,7 +139,8 @@ public class KlaymoreCommand extends CommandBase {
         // 只列服务端容器
         java.util.List<ScriptContainer> serverContainers = new java.util.ArrayList<ScriptContainer>();
         for (ScriptContainer c : all) {
-            if (c.getSide() == null || c.getSide().isServer()) {
+            if (c.getSide() == null || c.getSide()
+                .isServer()) {
                 serverContainers.add(c);
             }
         }
@@ -152,24 +156,32 @@ public class KlaymoreCommand extends CommandBase {
             String scriptName = c.getScriptName();
             String path = c.getPath();
             Object target = c.getTarget();
-            String targetDesc = target == null ? "<null>" : target.getClass().getSimpleName();
+            String targetDesc = target == null ? "<null>"
+                : target.getClass()
+                    .getSimpleName();
             // 尝试显示 target 的更友好描述（如玩家名）
             if (target instanceof net.minecraft.entity.player.EntityPlayer) {
                 targetDesc = "Player:" + ((net.minecraft.entity.player.EntityPlayer) target).getDisplayName();
             } else if (target instanceof net.minecraft.entity.Entity) {
                 net.minecraft.entity.Entity e = (net.minecraft.entity.Entity) target;
-                targetDesc = "Entity:" + e.getClass().getSimpleName() + "#" + e.getEntityId();
+                targetDesc = "Entity:" + e.getClass()
+                    .getSimpleName() + "#" + e.getEntityId();
             } else if (target instanceof com.earthforge.klaymore.script.Dummy) {
                 targetDesc = "Dummy:" + ((com.earthforge.klaymore.script.Dummy) target).getId();
             }
 
             StringBuilder sb = new StringBuilder();
-            sb.append("§f").append(idx++).append(". ");
-            sb.append("§a").append(scriptName);
+            sb.append("§f")
+                .append(idx++)
+                .append(". ");
+            sb.append("§a")
+                .append(scriptName);
             sb.append(" §7-> ");
-            sb.append("target=").append(targetDesc);
+            sb.append("target=")
+                .append(targetDesc);
             if (path != null && !path.isEmpty()) {
-                sb.append(" §7path=§e").append(path);
+                sb.append(" §7path=§e")
+                    .append(path);
             }
             sender.addChatMessage(new ChatComponentText(sb.toString()));
         }

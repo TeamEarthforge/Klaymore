@@ -237,7 +237,10 @@ public final class PersistenceStorage {
                     @Override
                     public void accept(CompiledScript compiled) {
                         int left = remain.decrementAndGet();
-                        if (compiled != null) {
+                        // compiled != null 表示该文件定义了 KlaymoreScript 子类并成功编译；
+                        // isScriptProcessed 表示该文件属于已成功批量编译的目录，但本身不定义脚本类
+                        // （如 data class / object / 工具类），同样视为预编译成功。
+                        if (compiled != null || ScriptLoader.isScriptProcessed(f)) {
                             System.out.println(
                                 "[Klaymore PersistenceStorage] pre-compile OK: " + f.getName()
                                     + " (remaining="

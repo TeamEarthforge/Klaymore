@@ -243,7 +243,9 @@ object ScriptNetDispatcher {
   }
 }
 
-/** 绑定到特定 ScriptContainer 的 ScriptNet 实现。 注入到 KlaymoreScript.net 字段，on() 注册的 handler 会跟随容器生命周期自动清理。 */
+/**
+ * 绑定到特定 ScriptContainer 的 ScriptNet 实现。 注入到 KlaymoreScript.net 字段，on() 注册的 handler 会跟随容器生命周期自动清理。
+ */
 internal class ScriptNetImpl(private val container: ScriptContainer) : ScriptNet {
 
   override fun sendToServer(channel: String, data: Any?) {

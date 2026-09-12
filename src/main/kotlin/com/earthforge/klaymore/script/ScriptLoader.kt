@@ -22,22 +22,18 @@ object ScriptLoader {
   /**
    * common/ 目录编译产物的共享 ClassLoader。
    *
-   * 所有 server/ 和 client/ 的 ClassLoader 都以此为父加载器，
-   * 因此 common/ 里定义的类在 JVM 中只存在一份，跨目录可直接引用、可互相转型。
+   * 所有 server/ 和 client/ 的 ClassLoader 都以此为父加载器， 因此 common/ 里定义的类在 JVM 中只存在一份，跨目录可直接引用、可互相转型。
    */
-  @Volatile
-  private var commonClassLoader: ClassLoader? = null
+  @Volatile private var commonClassLoader: ClassLoader? = null
 
   /**
-   * common/ 编译输出目录（持久化到 cache/common-classes/），
-   * 编译 server/client 脚本时把此目录加到 classpath，让编译器能解析 common 类。
+   * common/ 编译输出目录（持久化到 cache/common-classes/）， 编译 server/client 脚本时把此目录加到 classpath，让编译器能解析 common
+   * 类。
    */
-  @Volatile
-  private var commonClasspathDir: File? = null
+  @Volatile private var commonClasspathDir: File? = null
 
   /** common/ 目录是否已尝试加载过（避免重复编译）。 */
-  @Volatile
-  private var commonLoaded: Boolean = false
+  @Volatile private var commonLoaded: Boolean = false
 
   /** 异步编译/加载专用单线程执行器，避免多线程并发修改缓存。 */
   private val asyncExecutor =
@@ -83,6 +79,12 @@ object ScriptLoader {
           lastModifiedCache[absolutePath] = lastModified
           return it
         }
+        // 该文件属于已成功批量编译的目录，但没有定义 KlaymoreScript 子类
+        // （例如只定义 data class / object / 普通工具类）。
+        // 不回退到单文件编译——单文件编译会因无法解析同目录其他脚本的引用而失败。
+        // 标记为已处理，避免重复编译；返回 null 表示"无脚本类可挂载"。
+        lastModifiedCache[absolutePath] = lastModified
+        return null
       }
     }
 
@@ -150,8 +152,7 @@ object ScriptLoader {
    *
    * 同目录内所有脚本共享一个 ClassLoader，因此脚本 A 定义的类可被脚本 B 直接引用。
    *
-   * 若 common/ 目录存在且已编译，当前目录的 ClassLoader 会以 commonClassLoader 为父加载器，
-   * 这样当前目录的脚本可以直接引用 common/ 里定义的类。
+   * 若 common/ 目录存在且已编译，当前目录的 ClassLoader 会以 commonClassLoader 为父加载器， 这样当前目录的脚本可以直接引用 common/ 里定义的类。
    *
    * @return 批量编译成功且目录内至少有一个脚本被缓存 → true；否则 false。
    */
@@ -225,7 +226,8 @@ object ScriptLoader {
       return
     }
 
-    val ktFiles = commonDir.listFiles { f -> f.isFile && f.extension.equals("kt", ignoreCase = true) }
+    val ktFiles =
+        commonDir.listFiles { f -> f.isFile && f.extension.equals("kt", ignoreCase = true) }
     if (ktFiles == null || ktFiles.isEmpty()) {
       println("[Klaymore] common/ directory has no .kt files, skipping common load.")
       return
@@ -318,8 +320,7 @@ object ScriptLoader {
   }
 
   /**
-   * 从批量编译产物中找出所有 [KlaymoreScript] 子类，并通过 class 文件的 SourceFile 属性
-   * 映射回源文件名。
+   * 从批量编译产物中找出所有 [KlaymoreScript] 子类，并通过 class 文件的 SourceFile 属性 映射回源文件名。
    *
    * @return Map<源文件名, KlaymoreScript 子类的 KClass>
    */
@@ -362,7 +363,8 @@ object ScriptLoader {
   /**
    * 解析 class 文件常量池，读取 SourceFile 属性（源文件名）。
    *
-   * SourceFile 属性结构：attribute_name_index("SourceFile") + attribute_length(=2) + sourcefile_index(Utf8)。
+   * SourceFile 属性结构：attribute_name_index("SourceFile") + attribute_length(=2) +
+   * sourcefile_index(Utf8)。
    */
   private fun parseSourceFileAttribute(bytes: ByteArray): String? {
     return try {
@@ -467,6 +469,18 @@ object ScriptLoader {
     return count
   }
 
+  /**
+   * 判断脚本文件是否已被处理（批量编译成功并缓存，或已标记为无 KlaymoreScript 子类）。
+   *
+   * 用于区分"批量编译成功但该文件不定义脚本类"和"编译失败"两种情况：
+   * - 返回 true：文件已成功处理（要么有 CompiledScript 缓存，要么属于已批量编译的目录但无脚本类）
+   * - 返回 false：文件未处理或编译失败
+   */
+  @JvmStatic
+  fun isScriptProcessed(scriptFile: File): Boolean {
+    return lastModifiedCache[scriptFile.absolutePath] == scriptFile.lastModified()
+  }
+
   @JvmStatic
   fun clearCache() {
     compileCache.clear()
@@ -508,11 +522,12 @@ object ScriptLoader {
 
     // 如果修改的是 common/ 目录下的脚本，需要清空所有缓存（common 变了，所有依赖它的目录都要重编译）
     val commonDir = MinecraftDirectory.getCommonScriptDirectory()
-    val isCommon = try {
-      scriptFile.canonicalPath.startsWith(commonDir.canonicalPath)
-    } catch (_: Throwable) {
-      false
-    }
+    val isCommon =
+        try {
+          scriptFile.canonicalPath.startsWith(commonDir.canonicalPath)
+        } catch (_: Throwable) {
+          false
+        }
     if (isCommon) {
       println("[Klaymore] common script modified, clearing all batch caches: ${scriptFile.name}")
       batchDirLoaders.clear()
@@ -567,15 +582,27 @@ object ScriptLoader {
 /**
  * 批量编译产物的 ClassLoader。
  *
- * 同一目录下所有脚本编译出的类共享此加载器，因此脚本间可以互相引用彼此的类。
- * 父加载器为 Launch.classLoader，保证 Minecraft/Forge/Kotlin 类可见。
+ * 同一目录下所有脚本编译出的类共享此加载器，因此脚本间可以互相引用彼此的类。 父加载器为 Launch.classLoader，保证 Minecraft/Forge/Kotlin 类可见。
  */
-private class BatchClassLoader(
-    private val classes: Map<String, ByteArray>,
-    parent: ClassLoader
-) : ClassLoader(parent) {
+private class BatchClassLoader(private val classes: Map<String, ByteArray>, parent: ClassLoader) :
+    ClassLoader(parent) {
+
   override fun findClass(name: String): Class<*> {
-    val bytes = classes[name] ?: throw ClassNotFoundException(name)
-    return defineClass(name, bytes, 0, bytes.size)
+    // 1. 拦截 Forge / Minecraft 自身的包，强制委派给父加载器
+    //    避免因重复加载导致包签名冲突
+    if (name.startsWith("cpw.mods.fml.") ||
+        name.startsWith("net.minecraftforge.") ||
+        name.startsWith("net.minecraft.") ||
+        name.startsWith("net.minecraft.launchwrapper.")) {
+      return getParent().loadClass(name)
+    }
+
+    // 2. 如果是当前脚本编译产出的类，则自行定义
+    classes[name]?.let { bytes ->
+      return defineClass(name, bytes, 0, bytes.size)
+    }
+
+    // 3. 其他情况，回退到父加载器（Java 标准类等）
+    return getParent().loadClass(name)
   }
 }

@@ -15,7 +15,7 @@ class ScriptContainer(
     scriptInstance: Any? = null,
     val side: ScriptSide = ScriptSide.SERVER
 ) {
-  private var _compiledScript: CompiledScript = compiledScript
+  private var _compiledScript: CompiledScript? = compiledScript
   private var _scriptInstance: Any? = scriptInstance
 
   private val _targetRef = WeakReference(target)
@@ -150,7 +150,7 @@ class ScriptContainer(
 
   fun getScriptInstance(): Any? = _scriptInstance
 
-  fun getCompiledScript(): CompiledScript = _compiledScript
+  fun getCompiledScript(): CompiledScript? = _compiledScript
 
   fun setParent(parent: ScriptContainer?) {
     this.parent?.removeChild(this)
@@ -191,7 +191,7 @@ class ScriptContainer(
       SubscriberRegistry.unregisterInstance(oldInstance)
     }
     _scriptInstance = null
-    _compiledScript = null as CompiledScript
+    _compiledScript = null
     tempDataMap.clear()
     persistentDataMap.clear()
     _children.clear()
@@ -252,8 +252,7 @@ object ScriptInjectionUtils {
   /**
    * 沿继承链查找非静态同名字段并注入值。
    *
-   * 字段定义在 [KlaymoreScript] 基类中，子类的 declaredFields 不包含父类字段，
-   * 因此需要向上遍历继承链直到找到目标字段。
+   * 字段定义在 [KlaymoreScript] 基类中，子类的 declaredFields 不包含父类字段， 因此需要向上遍历继承链直到找到目标字段。
    */
   private fun setFieldIfAssignable(
       instance: Any,
@@ -271,10 +270,7 @@ object ScriptInjectionUtils {
     }
   }
 
-  private fun findFieldInHierarchy(
-      clazz: Class<*>,
-      fieldName: String
-  ): java.lang.reflect.Field? {
+  private fun findFieldInHierarchy(clazz: Class<*>, fieldName: String): java.lang.reflect.Field? {
     var current: Class<*>? = clazz
     while (current != null && current != Any::class.java) {
       try {

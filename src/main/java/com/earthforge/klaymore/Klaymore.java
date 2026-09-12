@@ -265,7 +265,9 @@ public class Klaymore {
         try {
             int registered = ScriptLoader.runCommonRegistration();
             if (registered > 0) {
-                LOG.info("[Klaymore] Common script registration phase complete: " + registered + " script(s) ran onRegister()");
+                LOG.info(
+                    "[Klaymore] Common script registration phase complete: " + registered
+                        + " script(s) ran onRegister()");
             }
         } catch (Throwable t) {
             LOG.error("[Klaymore] Common script registration failed: " + t.getMessage(), t);
@@ -342,7 +344,9 @@ public class Klaymore {
         }
         LOG.info("[Klaymore] Unmounting global Root.kt...");
         try {
-            GlobalRoot.unmountAll();
+            // 只卸载服务端根；客户端根（client/Root.kt）跨世界常驻，
+            // 不应随 integrated server 停止而卸载，否则客户端 @Subscribe 处理器丢失。
+            GlobalRoot.unmount();
         } catch (Throwable t) {
             LOG.error("[Klaymore] Failed to unmount Root.kt: " + t.getMessage(), t);
         }

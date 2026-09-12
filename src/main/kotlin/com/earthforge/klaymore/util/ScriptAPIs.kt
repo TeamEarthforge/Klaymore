@@ -4,7 +4,6 @@ import com.earthforge.klaymore.Klaymore
 import java.lang.invoke.MethodHandles
 import java.lang.reflect.Method
 import java.util.concurrent.ConcurrentHashMap
-import java.util.function.Function
 
 /**
  * 全局脚本 API 注册表。
@@ -18,6 +17,7 @@ import java.util.function.Function
  * - 所有方法标注 `@JvmStatic`，Java 可直接 `ScriptAPIs.invoke(...)` 调用。
  *
  * Kotlin 脚本注册示例：
+ *
  * ```kotlin
  * ScriptAPIs.register("myMod.say") { args ->
  *     val msg = args[0] as String
@@ -27,6 +27,7 @@ import java.util.function.Function
  * ```
  *
  * Java 调用示例：
+ *
  * ```java
  * String result = (String) ScriptAPIs.invoke("myMod.say", "hello");
  * ```
@@ -48,6 +49,7 @@ object ScriptAPIs {
       Klaymore.LOG.warn("[Klaymore ScriptAPIs] API '$name' overwritten")
     }
   }
+
   /**
    * 通过反射 `Method` 注册。
    *
@@ -108,16 +110,13 @@ object ScriptAPIs {
   }
 
   /** 判断某名称的 API 是否已注册。 */
-  @JvmStatic
-  fun has(name: String): Boolean = apis.containsKey(name)
+  @JvmStatic fun has(name: String): Boolean = apis.containsKey(name)
 
   /** 注销某个 API，返回是否存在并成功移除。 */
-  @JvmStatic
-  fun unregister(name: String): Boolean = apis.remove(name) != null
+  @JvmStatic fun unregister(name: String): Boolean = apis.remove(name) != null
 
   /** 获取所有已注册的 API 名称（快照）。 */
-  @JvmStatic
-  fun names(): Set<String> = apis.keys.toSet()
+  @JvmStatic fun names(): Set<String> = apis.keys.toSet()
 
   /** 清空所有 API（慎用，通常仅在脚本重载时调用）。 */
   @JvmStatic

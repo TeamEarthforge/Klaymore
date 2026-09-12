@@ -22,6 +22,7 @@ ops.json
 server.properties
 servers.dat
 usercache.json
+katton-reference
 whitelist.json
 /out/
 *.iml

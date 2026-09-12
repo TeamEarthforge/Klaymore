@@ -89,7 +89,37 @@ class ScriptCompiler : ScriptCompilerBridge {
       throw RuntimeException("Cannot find net.minecraft.launchwrapper.Launch.classLoader", t)
     }
   }
+    private fun clearPollutedEventPackage() {
+        try {
+            val cl = launchClassLoader()
 
+            // 1. 清 package2certs 里 cpw.mods.fml.common.event 的记录
+            val certsField = ClassLoader::class.java.getDeclaredField("package2certs")
+            certsField.isAccessible = true
+            @Suppress("UNCHECKED_CAST")
+            val certs = certsField.get(cl) as MutableMap<String, Any?>
+            val removedCerts = certs.keys.filter { it.startsWith("cpw.mods.fml.") || it.startsWith("net.minecraftforge.") }
+            removedCerts.forEach { certs.remove(it) }
+            if (removedCerts.isNotEmpty()) {
+                println("[Klaymore] cleared package2certs keys: $removedCerts")
+            }
+
+            // 2. 清 invalidClasses
+            val cf = Class.forName("net.minecraft.launchwrapper.LaunchClassLoader")
+            val invalidField = cf.getDeclaredField("invalidClasses")
+            invalidField.isAccessible = true
+            @Suppress("UNCHECKED_CAST")
+            val invalid = invalidField.get(cl) as MutableSet<String>
+            val removedInvalid = invalid.filter { it.startsWith("cpw.mods.fml.") || it.startsWith("net.minecraftforge.") }
+            removedInvalid.forEach { invalid.remove(it) }
+            if (removedInvalid.isNotEmpty()) {
+                println("[Klaymore] cleared invalidClasses: $removedInvalid")
+            }
+        } catch (t: Throwable) {
+            System.err.println("[Klaymore] clearPollutedEventPackage failed: ${t.message}")
+            t.printStackTrace(System.err)
+        }
+    }
   @Synchronized
   private fun getOrCreateCompiler(): JvmScriptCompiler {
     compiler?.let {
@@ -209,6 +239,8 @@ class ScriptCompiler : ScriptCompilerBridge {
 
       val args =
           arrayOf(
+              "-no-stdlib",
+              "-no-reflect",
               "-classpath",
               classpathStr,
               "-d",
@@ -252,6 +284,7 @@ class ScriptCompiler : ScriptCompilerBridge {
       e.printStackTrace(System.err)
       BatchCompileResult(emptyMap(), false, e.message)
     } finally {
+        clearPollutedEventPackage()
       Thread.currentThread().contextClassLoader = originalClassLoader
     }
   }
