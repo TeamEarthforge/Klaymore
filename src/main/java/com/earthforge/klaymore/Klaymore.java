@@ -272,6 +272,24 @@ public class Klaymore {
         } catch (Throwable t) {
             LOG.error("[Klaymore] Common script registration failed: " + t.getMessage(), t);
         }
+
+        // =================================================================
+        // ⭐ 阶段 7：注入 Klaymore 资源包（必须在第一次纹理 stitch 之前）
+        // =================================================================
+        // 方块在 preInit 注册，TextureMap 的第一次 stitch 发生在 init 早期。
+        // 如果等到 ClientProxy.init() 才注入资源包，stitch 时找不到脚本方块的纹理。
+        // 因此在 preInit 末尾、runCommonRegistration 之后立即注入。
+        // 仅客户端需要；服务端没有 TextureMap / ResourceManager。
+        if (FMLCommonHandler.instance().getSide().isClient()) {
+            try {
+                Class.forName("com.earthforge.klaymore.client.KlaymoreResourceListener")
+                    .getMethod("register")
+                    .invoke(null);
+            } catch (Throwable t) {
+                LOG.warn("[Klaymore] Pre-init asset pack injection failed (will retry in init): "
+                    + t.getMessage());
+            }
+        }
     }
 
     @Mod.EventHandler

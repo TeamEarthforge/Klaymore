@@ -6,10 +6,13 @@ import net.minecraft.client.resources.IReloadableResourceManager;
 import net.minecraft.client.resources.IResourceManager;
 import net.minecraft.client.resources.IResourceManagerReloadListener;
 import net.minecraft.client.resources.SimpleReloadableResourceManager;
+import net.minecraftforge.client.event.TextureStitchEvent;
+import net.minecraftforge.common.MinecraftForge;
 
 import com.earthforge.klaymore.Klaymore;
 import com.earthforge.klaymore.MinecraftDirectory;
 
+import cpw.mods.fml.common.eventhandler.SubscribeEvent;
 import cpw.mods.fml.relauncher.Side;
 import cpw.mods.fml.relauncher.SideOnly;
 
@@ -31,9 +34,17 @@ import cpw.mods.fml.relauncher.SideOnly;
  * </ol>
  *
  * <p>
+ * <b>关键时序修复</b>：方块在 preInit 阶段注册，TextureMap 的 stitch 发生在 init 阶段。
+ * 单纯依赖 {@link IResourceManagerReloadListener} 不够，因为 {@code reloadResources} 内部
+ * 先 {@code clearResources} 再 {@code notifyReloadListeners}，而 stitch 发生在两者之间，
+ * 导致脚本方块的纹理在 stitch 时找不到。
+ * 因此额外监听 {@link TextureStitchEvent.Pre}，在每次 stitch 加载纹理之前确保资源包已注入。
+ * </p>
+ *
+ * <p>
  * 目录结构：
  * </p>
- * 
+ *
  * <pre>
  *   klaymore/
  *     assets/
@@ -48,6 +59,30 @@ public class KlaymoreResourceListener implements IResourceManagerReloadListener 
 
     @Override
     public void onResourceManagerReload(IResourceManager resourceManager) {
+        injectAssetPack(resourceManager);
+    }
+
+    /**
+     * 在每次纹理 stitch 之前确保 Klaymore 资源包已注入。
+     * 这是为了覆盖 {@code reloadResources} → {@code clearResources} → stitch →
+     * {@code notifyReloadListeners} 这个时序窗口，保证 stitch 时能找到脚本方块的纹理。
+     */
+    @SubscribeEvent
+    public void onTextureStitchPre(TextureStitchEvent.Pre event) {
+        try {
+            IResourceManager manager = Minecraft.getMinecraft().getResourceManager();
+            injectAssetPack(manager);
+        } catch (Throwable t) {
+            Klaymore.LOG.error("[Klaymore] Failed to inject asset pack before stitch: " + t.getMessage(), t);
+        }
+    }
+
+    /**
+     * 把 Klaymore 资源包注入到资源管理器。幂等操作，重复调用不会产生副作用
+     * （{@code reloadResourcePack} 会把 pack 追加到 FallbackResourceManager 列表末尾，
+     * 但 FallbackResourceManager 从后往前查找，所以后注入的优先级更高，重复注入无害）。
+     */
+    private static void injectAssetPack(IResourceManager resourceManager) {
         if (!(resourceManager instanceof SimpleReloadableResourceManager)) {
             return;
         }
@@ -73,7 +108,10 @@ public class KlaymoreResourceListener implements IResourceManagerReloadListener 
             IResourceManager manager = Minecraft.getMinecraft()
                 .getResourceManager();
             if (manager instanceof IReloadableResourceManager) {
-                ((IReloadableResourceManager) manager).registerReloadListener(new KlaymoreResourceListener());
+                KlaymoreResourceListener listener = new KlaymoreResourceListener();
+                ((IReloadableResourceManager) manager).registerReloadListener(listener);
+                // 同时注册到 Forge 事件总线，监听 TextureStitchEvent.Pre
+                MinecraftForge.EVENT_BUS.register(listener);
                 Klaymore.LOG.info("[Klaymore] Resource reload listener registered");
             } else {
                 Klaymore.LOG.warn(
